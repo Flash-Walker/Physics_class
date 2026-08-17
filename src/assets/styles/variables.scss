@@ -1,0 +1,40 @@
+// ==========================================
+// 全局样式变量定义
+// 规范：所有组件统一引用此处变量，禁止硬编码颜色
+// ==========================================
+
+// ---------- 颜色系统 ----------
+// 主色：深蓝，用于标题、导航、主背景
+$color-primary: #0a2540;
+// 辅色：稍浅深蓝，用于侧边面板、卡片底色
+$color-secondary: #1e3a5f;
+// 科技蓝：用于交互按钮、链接、选中态
+$color-tech-blue: #4a90e2;
+// 强调色：琥珀金，用于高亮提示、相遇标记、重点数据
+$color-accent: #f5a623;
+// 状态色
+$color-success: #52c41a;
+$color-warning: #faad14;
+$color-danger: #ff4d4f;
+
+// 背景与文字
+$color-bg: #f8f9fa;            // 页面全局背景
+$color-card-bg: #ffffff;       // 卡片/画布背景
+$color-text-primary: #ffffff;  // 深色背景上的主文字
+$color-text-dark: #2c3e50;     // 浅色背景上的主文字
+$color-text-muted: #6c757d;    // 次要说明文字
+$color-border: #e5e7eb;        // 边框分割线
+
+// ---------- 圆角与阴影 ----------
+$radius-sm: 4px;    // 按钮、输入框
+$radius-card: 8px;  // 卡片、面板
+$radius-lg: 12px;   // 大容器
+
+$shadow-card: 0 2px 12px rgba(10, 37, 64, 0.08);
+$shadow-card-hover: 0 6px 20px rgba(10, 37, 64, 0.12);
+$shadow-panel: 0 4px 16px rgba(0, 0, 0, 0.1);
+
+// ---------- 布局尺寸 ----------
+$header-height: 64px;       // 顶部导航高度
+$sidebar-width: 280px;      // 左右侧边面板宽度
+$content-max-width: 1400px; // 内容区最大宽度
