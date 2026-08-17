@@ -69,6 +69,9 @@ export class MeetingEngine extends PhysicsEngine {
         b.distanceTraveled = 0
       })
     }
+
+    // super.reset() 已在字段恢复前触发过一次更新,这里补一次,确保 UI 拿到完整状态
+    this._triggerUpdate()
   }
 
   /**

@@ -75,8 +75,9 @@ const chartCanvas = ref(null)
 
 // ========== 工具方法 ==========
 
-// 格式化数值精度
+// 格式化数值精度（字符串原样显示，如阶段名称）
 const formatValue = (value, precision = 2) => {
+  if (typeof value === 'string') return value
   if (value === null || value === undefined || isNaN(value)) return '--'
   return Number(value).toFixed(precision)
 }

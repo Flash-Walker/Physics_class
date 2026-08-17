@@ -75,7 +75,8 @@ const runStateText = computed(() => {
   const map = {
     idle: '待开始',
     running: '● 运行中',
-    paused: '⏸ 已暂停'
+    paused: '⏸ 已暂停',
+    finished: '🏁 已完成'
   }
   return map[props.runState] || '待开始'
 })
@@ -183,6 +184,12 @@ const isTheoryOpen = ref(false)
     color: $color-accent;
     background: rgba(245, 166, 35, 0.1);
     border: 1px solid rgba(245, 166, 35, 0.3);
+  }
+
+  &.finished {
+    color: $color-success;
+    background: rgba(82, 196, 26, 0.12);
+    border: 1px solid rgba(82, 196, 26, 0.4);
   }
 }
 

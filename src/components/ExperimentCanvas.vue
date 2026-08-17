@@ -103,6 +103,15 @@ const canvasUtils = {
     return props.scale
   },
 
+  // 画布实际宽高（像素），供绘制函数做全幅绘制
+  get canvasWidth() {
+    return canvasWidth
+  },
+
+  get canvasHeight() {
+    return canvasHeight
+  },
+
   /**
    * 物理坐标 → 画布像素坐标
    * @param {number} x 物理x坐标（米）
