@@ -38,7 +38,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['ready'])
+const emit = defineEmits(['ready', 'resize'])
 
 const canvasRef = ref(null)
 let ctx = null
@@ -85,6 +85,9 @@ const updateSize = () => {
   // 缩放上下文，保证绘制坐标和显示像素一致
   ctx.scale(dpr, dpr)
 
+  // 通知父组件画布实际尺寸（用于缩放自适应）
+  emit('resize', { width: canvasWidth, height: canvasHeight })
+
   // 尺寸变化后重绘
   redraw()
 }
@@ -95,6 +98,11 @@ const updateSize = () => {
 // ==========================================
 
 const canvasUtils = {
+  // 当前缩放比例（米→像素），供绘制函数直接使用（如计算环形半径）
+  get scale() {
+    return props.scale
+  },
+
   /**
    * 物理坐标 → 画布像素坐标
    * @param {number} x 物理x坐标（米）

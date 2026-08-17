@@ -12,7 +12,7 @@ export const meetingConfig = {
     {
       group: '物体甲（红色）',
       fields: [
-        { key: 'vA', label: '初速度', type: 'slider', unit: 'm/s', default: 3, min: 0, max: 15, step: 0.1, precision: 1 },
+        { key: 'vA', label: '初速度', type: 'slider', unit: 'm/s', default: 3, min: 0, max: 100, step: 1, precision: 0 },
         { key: 'aA', label: '加速度', type: 'slider', unit: 'm/s²', default: 0, min: -5, max: 5, step: 0.1, precision: 1, advanced: true },
         { key: 'posA', label: '起始位置', type: 'slider', unit: 'm', default: 0, min: 0, max: 100, step: 1, precision: 0 }
       ]
@@ -20,7 +20,7 @@ export const meetingConfig = {
     {
       group: '物体乙（蓝色）',
       fields: [
-        { key: 'vB', label: '初速度', type: 'slider', unit: 'm/s', default: -2, min: -15, max: 0, step: 0.1, precision: 1 },
+        { key: 'vB', label: '初速度', type: 'slider', unit: 'm/s', default: -2, min: -100, max: 0, step: 1, precision: 0 },
         { key: 'aB', label: '加速度', type: 'slider', unit: 'm/s²', default: 0, min: -5, max: 5, step: 0.1, precision: 1, advanced: true },
         { key: 'posB', label: '起始位置', type: 'slider', unit: 'm', default: 100, min: 0, max: 100, step: 1, precision: 0 }
       ]
@@ -58,15 +58,16 @@ export const meetingConfig = {
       display: 'table',
       fields: [
         { key: 'position', label: '位置', unit: 'm', precision: 2 },
+        { key: 'distanceTraveled', label: '路程', unit: 'm', precision: 2 },
         { key: 'velocity', label: '速度', unit: 'm/s', precision: 2 },
         { key: 'acceleration', label: '加速度', unit: 'm/s²', precision: 2, advanced: true }
       ]
     },
     {
-      group: '位移-时间图像',
+      group: '路程-时间图像',
       display: 'chart',
       xAxis: 'time',
-      yAxis: ['position'],
+      yAxis: ['distanceTraveled'],
       unit: 'm'
     }
   ],
@@ -81,6 +82,7 @@ export const meetingConfig = {
     keyPoints: [
       '直道相向而行：相遇时间 = 初始距离 / 速度和',
       '环形跑道同向追及：每相遇一次，路程差增加一圈',
+      '直道两端折返：物体到达端点后速度反向、大小不变，做往复运动',
       '加速度为零时，退化为匀速直线运动模型'
     ],
     notes: '本模拟将物体视为质点，忽略空气阻力与物体尺寸。'

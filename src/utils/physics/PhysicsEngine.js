@@ -361,6 +361,7 @@ export class PhysicsEngine {
         position: round(b.position, 3),
         velocity: round(b.velocity, 3),
         acceleration: round(b.acceleration, 4),
+        distanceTraveled: round(b.distanceTraveled || 0, 3),
         netForce: round(this.getNetForce(b), 3),
         momentum: round(momentum(b.mass, b.velocity), 3),
         kineticEnergy: round(kineticEnergy(b.mass, b.velocity), 4),

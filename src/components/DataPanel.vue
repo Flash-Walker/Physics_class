@@ -188,6 +188,16 @@ const redrawChart = () => {
     ctx.fillText(val.toFixed(1), padding.left - 4, y + 3)
   }
 
+  // 画X轴刻度（时间）
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'
+  ctx.font = '10px sans-serif'
+  ctx.textAlign = 'center'
+  for (let i = 0; i <= 4; i++) {
+    const x = padding.left + (chartW / 4) * i
+    const val = xMin + ((xMax - xMin) / 4) * i
+    ctx.fillText(val.toFixed(1) + 's', x, height - padding.bottom + 14)
+  }
+
   // 画每条折线（每个物体一条）
   yKeys.forEach((yKey, keyIdx) => {
     bodies.forEach((body, bodyIdx) => {

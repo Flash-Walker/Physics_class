@@ -26,6 +26,7 @@
           :scale="canvasScale"
           :origin-x="0.05"
           :origin-y="0.5"
+          @resize="handleCanvasResize"
         />
       </template>
 
@@ -92,11 +93,16 @@ config.controls.forEach(group => {
 const engineState = ref({ bodies: [], history: [], distance: 0, meetCount: 0 })
 let engine = null
 
-// 画布缩放比例（根据跑道长度自适应）
+// 画布实际显示宽度（px），由 ExperimentCanvas 回传
+const canvasWidth = ref(600)
+const handleCanvasResize = ({ width }) => {
+  canvasWidth.value = width
+}
+
+// 画布缩放比例：跑道长度映射到画布宽度的 90%（起点在 5% 处 → 终点在 95% 处）
 const canvasScale = computed(() => {
   const length = params.trackLength || 100
-  // 让跑道占画布宽度的90%
-  return (window.innerWidth * 0.9 * 0.6) / length
+  return (canvasWidth.value * 0.9) / length
 })
 
 // 相遇提示
@@ -221,6 +227,26 @@ const drawRingTrack = (ctx, utils, length) => {
   ctx.beginPath()
   ctx.arc(center.x, centerY - radius, 4, 0, Math.PI * 2)
   ctx.fill()
+
+  // 1/4 圈刻度标记
+  ctx.font = '11px sans-serif'
+  ctx.textAlign = 'center'
+  for (let i = 0; i < 4; i++) {
+    const ang = (i / 4) * Math.PI * 2 - Math.PI / 2
+    const dx = Math.cos(ang)
+    const dy = Math.sin(ang)
+    // 刻度短线
+    ctx.strokeStyle = '#999'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.moveTo(center.x + (radius - 6) * dx, centerY + (radius - 6) * dy)
+    ctx.lineTo(center.x + (radius + 6) * dx, centerY + (radius + 6) * dy)
+    ctx.stroke()
+    // 距离标签（从起点顺时针）
+    const labelDist = Math.round((i * length) / 4)
+    ctx.fillStyle = '#666'
+    ctx.fillText(labelDist + 'm', center.x + (radius + 18) * dx, centerY + (radius + 18) * dy + 4)
+  }
 }
 
 // 绘制直道物体

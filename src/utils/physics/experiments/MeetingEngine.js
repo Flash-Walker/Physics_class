@@ -66,12 +66,15 @@ export class MeetingEngine extends PhysicsEngine {
       this.bodies.forEach((b, i) => {
         b.position = this._initialState.bodies[i].position
         b.velocity = this._initialState.bodies[i].velocity
+        b.distanceTraveled = 0
       })
     }
   }
 
   /**
    * 重写单步物理计算（运动学直接计算，不通过受力）
+   * 直道：到达两端端点后折返（速度反向、大小不变）
+   * 环形：位置循环归一化
    */
   _stepPhysics(dt) {
     const aA = this.params.aA || 0
@@ -79,6 +82,10 @@ export class MeetingEngine extends PhysicsEngine {
 
     const bodyA = this.getBody('A')
     const bodyB = this.getBody('B')
+
+    // 记录旧位置（用于路程累计，需在折返/归一化之前计算位移）
+    const oldPosA = bodyA.position
+    const oldPosB = bodyB.position
 
     // 更新物体A
     bodyA.acceleration = aA
@@ -90,14 +97,47 @@ export class MeetingEngine extends PhysicsEngine {
     bodyB.velocity += aB * dt
     bodyB.position += bodyB.velocity * dt + 0.5 * aB * dt * dt
 
-    // 环形跑道位置归一化
+    const trackLen = this.params.trackLength || 100
+
+    // 累计路程（位移绝对值；环形跨过起点时取较短弧长）
+    const travelA = this._travelDistance(oldPosA, bodyA.position, trackLen)
+    const travelB = this._travelDistance(oldPosB, bodyB.position, trackLen)
+    bodyA.distanceTraveled = (bodyA.distanceTraveled || 0) + travelA
+    bodyB.distanceTraveled = (bodyB.distanceTraveled || 0) + travelB
+
     if (this.params.trackType === 'ring') {
-      const len = this.params.trackLength || 100
-      bodyA.position = normalizeRingPos(bodyA.position, len)
-      bodyB.position = normalizeRingPos(bodyB.position, len)
+      // 环形跑道：位置归一化
+      bodyA.position = normalizeRingPos(bodyA.position, trackLen)
+      bodyB.position = normalizeRingPos(bodyB.position, trackLen)
+    } else {
+      // 直道：越过端点后反射折返（速度大小不变、方向相反）
+      // 用镜像反射而非简单夹取，避免浮点误差导致折返时刻延迟、位置漂移
+      const bounce = (body) => {
+        if (body.position < 0) {
+          body.position = -body.position
+          body.velocity = Math.abs(body.velocity)
+        } else if (body.position > trackLen) {
+          body.position = 2 * trackLen - body.position
+          body.velocity = -Math.abs(body.velocity)
+        }
+      }
+      bounce(bodyA)
+      bounce(bodyB)
     }
 
     this._onStepEnd?.(dt)
+  }
+
+  /**
+   * 计算本帧实际走过的路程
+   * 直道：位移绝对值；环形：取较短弧长（避免跨起点时把大半圈误算进去）
+   */
+  _travelDistance(oldPos, newPos, trackLen) {
+    const delta = Math.abs(newPos - oldPos)
+    if (this.params.trackType === 'ring' && trackLen > 0) {
+      return Math.min(delta, trackLen - delta)
+    }
+    return delta
   }
 
   /**
