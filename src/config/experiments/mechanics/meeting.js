@@ -1,11 +1,11 @@
 export const meetingConfig = {
   meta: {
     id: 'meeting',
-    name: '相遇问题',
+    name: '相遇&追及问题',
     chapter: 'mechanics',
     difficulty: '基础',
-    description: '模拟直道与环形跑道下两物体的运动过程，观察相遇条件与相遇时刻',
-    keywords: ['运动学', '匀速直线运动', '匀变速', '相遇']
+    description: '模拟直道与环形跑道下两物体的运动过程，观察相遇与追及的条件和时刻',
+    keywords: ['运动学', '匀速直线运动', '匀变速', '相遇', '追及']
   },
 
   controls: [

@@ -32,7 +32,7 @@ const currentExperiment = computed(() => {
 // 实验名称
 const experimentName = computed(() => {
   const nameMap = {
-    meeting: '相遇问题'
+    meeting: '相遇&追及问题'
   }
   return nameMap[route.params.expId] || '物理实验'
 })

@@ -37,15 +37,14 @@ const chapterData = {
   mechanics: {
     title: '力学',
     experiments: [
-      { id: 'meeting', num: '01', name: '相遇问题', description: '直道与环形跑道下的两物体相遇模拟' },
-      { id: 'chase', num: '02', name: '追及问题', description: '同向运动追及条件与临界状态演示' },
-      { id: 'train-bridge', num: '03', name: '火车过桥问题', description: '列车完全过桥路程分析' },
-      { id: 'vt-st-graph', num: '04', name: 'v-t图 / s-t图绘制', description: '运动图像实时生成与解读' },
-      { id: 'force-composition', num: '05', name: '力的合成与分解', description: '平行四边形定则可视化' },
-      { id: 'lever', num: '06', name: '杠杆平衡', description: '杠杆原理与平衡条件实验' },
-      { id: 'pulley', num: '07', name: '滑轮组', description: '定滑轮动滑轮与机械效率' },
-      { id: 'buoyancy', num: '08', name: '浮力与阿基米德原理', description: '浮力大小与排液体积关系' },
-      { id: 'efficiency', num: '09', name: '简单机械效率', description: '有用功、额外功与机械效率' }
+      { id: 'meeting', num: '01', name: '相遇&追及问题', description: '直道与环形跑道下的两物体相遇、追及模拟' },
+      { id: 'train-bridge', num: '02', name: '火车过桥问题', description: '列车完全过桥路程分析' },
+      { id: 'vt-st-graph', num: '03', name: 'v-t图 / s-t图绘制', description: '运动图像实时生成与解读' },
+      { id: 'force-composition', num: '04', name: '力的合成与分解', description: '平行四边形定则可视化' },
+      { id: 'lever', num: '05', name: '杠杆平衡', description: '杠杆原理与平衡条件实验' },
+      { id: 'pulley', num: '06', name: '滑轮组', description: '定滑轮动滑轮与机械效率' },
+      { id: 'buoyancy', num: '07', name: '浮力与阿基米德原理', description: '浮力大小与排液体积关系' },
+      { id: 'efficiency', num: '08', name: '简单机械效率', description: '有用功、额外功与机械效率' }
     ]
   },
   // 其余章节后续逐步补充
