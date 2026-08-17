@@ -214,6 +214,8 @@ export class PhysicsEngine {
       cancelAnimationFrame(this._animId)
       this._animId = null
     }
+    // 通知 UI 状态变化（暂停后徽标/数据立即刷新）
+    this._triggerUpdate()
   }
 
   reset() {
@@ -236,6 +238,13 @@ export class PhysicsEngine {
     this._checkCollisions()
     this._recordHistory()
     this._triggerUpdate()
+  }
+
+  /**
+   * 更新引擎参数（运行中实时生效，子类可扩展）
+   */
+  updateParams(newParams) {
+    Object.assign(this.params, newParams)
   }
 
   // ==========================================

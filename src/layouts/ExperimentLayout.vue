@@ -13,7 +13,10 @@
       <!-- 中间：模拟画布区域 -->
       <section class="canvas-wrapper">
         <div class="canvas-header">
-          <span class="canvas-title">{{ experimentTitle }}</span>
+          <div class="canvas-title-wrap">
+            <span class="canvas-title">{{ experimentTitle }}</span>
+            <span class="run-state" :class="runState">{{ runStateText }}</span>
+          </div>
           <div class="control-buttons">
             <button class="btn btn-primary" @click="$emit('start')">开始</button>
             <button class="btn btn-secondary" @click="$emit('pause')">暂停</button>
@@ -52,14 +55,29 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 // 接收实验标题
-defineProps({
+const props = defineProps({
   experimentTitle: {
     type: String,
     default: '物理实验模拟'
+  },
+  // 引擎运行状态：idle / running / paused
+  runState: {
+    type: String,
+    default: 'idle'
   }
+})
+
+// 状态徽标文案
+const runStateText = computed(() => {
+  const map = {
+    idle: '待开始',
+    running: '● 运行中',
+    paused: '⏸ 已暂停'
+  }
+  return map[props.runState] || '待开始'
 })
 
 // 向父组件暴露操作事件
@@ -135,6 +153,37 @@ const isTheoryOpen = ref(false)
   font-size: 16px;
   font-weight: 600;
   color: $color-primary;
+}
+
+.canvas-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-state {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-weight: 500;
+
+  &.idle {
+    color: $color-text-muted;
+    background: $color-bg;
+    border: 1px solid $color-border;
+  }
+
+  &.running {
+    color: $color-success;
+    background: rgba(82, 196, 26, 0.1);
+    border: 1px solid rgba(82, 196, 26, 0.3);
+  }
+
+  &.paused {
+    color: $color-accent;
+    background: rgba(245, 166, 35, 0.1);
+    border: 1px solid rgba(245, 166, 35, 0.3);
+  }
 }
 
 .control-buttons {

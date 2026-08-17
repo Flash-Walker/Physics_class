@@ -9,7 +9,9 @@ export class MeetingEngine extends PhysicsEngine {
     this.meetCount = 0
     this.meetTimes = []
     this._meetThreshold = 0.15 // 相遇判定阈值（米）
-    this._lastDistance = Infinity // 上一帧间距，用于判断是否穿越
+    this._lastDistance = null // 上一帧间距（环形用），null=首帧不判定
+    this._lastSignedDist = null // 上一帧有向距离（直道用，A位置-B位置）
+    this._armed = true // 相遇检测保险：相遇后需离开阈值范围才重新启用，防止重复计数
   }
 
   /**
@@ -55,7 +57,9 @@ export class MeetingEngine extends PhysicsEngine {
     super.reset()
     this.meetCount = 0
     this.meetTimes = []
-    this._lastDistance = Infinity
+    this._lastDistance = null
+    this._lastSignedDist = null
+    this._armed = true
 
     // 恢复物体初始状态
     if (this._initialState) {
@@ -98,31 +102,57 @@ export class MeetingEngine extends PhysicsEngine {
 
   /**
    * 重写碰撞检测 → 改为相遇检测
+   * 直道：有向距离符号翻转判定穿越（高速下不漏判）
+   * 环形：进入阈值范围 或 阈值内间距持续缩小
+   * 保险机制：相遇后必须离开阈值范围才允许下一次计数，避免重复/抖动误报
    */
   _checkCollisions() {
     const bodyA = this.getBody('A')
     const bodyB = this.getBody('B')
     if (!bodyA || !bodyB) return
 
+    const isRing = this.params.trackType === 'ring'
     let distance
-    if (this.params.trackType === 'ring') {
+    let met = false
+
+    if (isRing) {
       distance = ringShortestDistance(bodyA.position, bodyB.position, this.params.trackLength)
+
+      if (this._lastDistance !== null && this._armed) {
+        // 从阈值外进入阈值内 = 擦肩穿越
+        const entered = this._lastDistance >= this._meetThreshold && distance <= this._meetThreshold
+        // 初始就在阈值内且间距仍在缩小 = 正在接近
+        const shrinking = distance <= this._meetThreshold && distance < this._lastDistance
+        met = entered || shrinking
+      }
+      this._lastDistance = distance
     } else {
-      distance = Math.abs(bodyA.position - bodyB.position)
+      const s = bodyA.position - bodyB.position
+
+      if (this._lastSignedDist !== null && this._armed) {
+        // 有向距离符号翻转 = 两物体交错而过
+        const crossed = this._lastSignedDist * s < 0
+        // 距离小于阈值且仍在缩小 = 正在接近
+        const touched = Math.abs(s) <= this._meetThreshold && Math.abs(s) < Math.abs(this._lastSignedDist)
+        met = crossed || touched
+      }
+      this._lastSignedDist = s
+      distance = Math.abs(s)
     }
 
-    // 相遇判定：间距小于阈值 且 间距在缩小（穿越相遇点）
-    if (distance <= this._meetThreshold && distance < this._lastDistance) {
+    if (met) {
       this.meetCount++
       this.meetTimes.push(round(this.totalTime, 3))
+      this._armed = false
       this._triggerEvent('meet', {
         time: round(this.totalTime, 3),
-        position: round((bodyA.position + bodyA.position) / 2, 3),
+        position: round((bodyA.position + bodyB.position) / 2, 3),
         count: this.meetCount
       })
+    } else if (distance > this._meetThreshold) {
+      // 离开阈值范围后重新启用检测
+      this._armed = true
     }
-
-    this._lastDistance = distance
   }
 
   /**
@@ -151,19 +181,29 @@ export class MeetingEngine extends PhysicsEngine {
   }
 
   /**
-   * 更新参数（运行中实时生效）
+   * 更新参数
+   * - 速度实时生效（运行中调整立即改变物体速度）
+   * - 起始位置仅在非运行状态生效（避免运行中瞬移）
+   * - 非运行状态下同步重置基准快照
    */
   updateParams(newParams) {
     super.updateParams(newParams)
-    // 暂停状态下更新参数时，同步更新物体初速度
+
+    const bodyA = this.getBody('A')
+    const bodyB = this.getBody('B')
+
+    // 速度实时生效
+    if (bodyA && newParams.vA !== undefined) bodyA.velocity = newParams.vA
+    if (bodyB && newParams.vB !== undefined) bodyB.velocity = newParams.vB
+
+    // 起始位置与基准快照：仅在未运行时同步
     if (this.state !== 'running') {
-      const bodyA = this.getBody('A')
-      const bodyB = this.getBody('B')
-      if (bodyA && newParams.vA !== undefined) bodyA.velocity = newParams.vA
       if (bodyA && newParams.posA !== undefined) bodyA.position = newParams.posA
-      if (bodyB && newParams.vB !== undefined) bodyB.velocity = newParams.vB
       if (bodyB && newParams.posB !== undefined) bodyB.position = newParams.posB
       this._resetInitialState()
     }
+
+    // 参数同步完成后立即刷新 UI 快照（画布/数据面板显示最新状态）
+    this._triggerUpdate()
   }
 }

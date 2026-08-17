@@ -93,8 +93,11 @@ const bodyColors = ['#f5222d', '#1890ff', '#52c41a', '#faad14', '#722ed1']
 
 // 重绘图表
 const redrawChart = () => {
-  const canvas = chartCanvas.value
-  if (!canvas) return
+  // v-for 内的模板 ref 会被收集为数组,取第一个元素
+  const raw = chartCanvas.value
+  const canvas = Array.isArray(raw) ? raw[0] : raw
+  // 防御：canvas 未挂载或引用异常时跳过（如 v-else-if 分支切换期间）
+  if (!canvas || typeof canvas.getContext !== 'function') return
 
   const ctx = canvas.getContext('2d')
   const rect = canvas.getBoundingClientRect()

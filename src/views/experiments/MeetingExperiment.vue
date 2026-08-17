@@ -2,6 +2,7 @@
   <div class="meeting-experiment">
     <ExperimentLayout
       :experiment-title="config.meta.name"
+      :run-state="engineState.state"
       @start="handleStart"
       @pause="handlePause"
       @reset="handleReset"
@@ -10,7 +11,8 @@
       <template #control>
         <ControlPanel
           :config="config.controls"
-          v-model="params"
+          :model-value="params"
+          @update:model-value="mergeParams"
           @change="handleParamChange"
         />
       </template>
@@ -138,6 +140,11 @@ const handlePause = () => {
 
 const handleReset = () => {
   engine?.reset()
+}
+
+// 合并参数更新（保持 params 响应式对象引用不变，避免 v-model 直接赋值导致 const 报错）
+const mergeParams = (newParams) => {
+  Object.assign(params, newParams)
 }
 
 const handleParamChange = (key, value) => {
