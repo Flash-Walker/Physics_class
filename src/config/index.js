@@ -1,10 +1,9 @@
-import meeting from './mechanics/meeting.js'
-import buoyancy from './mechanics/buoyancy.js'
+import { meetingConfig } from './experiments/mechanics/meeting.js'
 
 export const experimentConfigs = {
-  'mechanics/meeting': meeting,
-  'mechanics/buoyancy': buoyancy
-  // 后续逐个添加
+  'mechanics/meeting': meetingConfig
+  // 后续实验逐个添加，例如：
+  // 'mechanics/buoyancy': buoyancyConfig
 }
 
 export function getExperimentConfig(chapterId, expId) {
