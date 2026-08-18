@@ -22,7 +22,8 @@ const router = useRouter()
 const experimentComponents = {
   'mechanics/meeting': defineAsyncComponent(() => import('./experiments/MeetingExperiment.vue')),
   'mechanics/train-bridge': defineAsyncComponent(() => import('./experiments/TrainBridgeExperiment.vue')),
-  'mechanics/force-composition': defineAsyncComponent(() => import('./experiments/ForceCompositionExperiment.vue'))
+  'mechanics/force-composition': defineAsyncComponent(() => import('./experiments/ForceCompositionExperiment.vue')),
+  'mechanics/lever': defineAsyncComponent(() => import('./experiments/LeverExperiment.vue'))
 }
 
 // 当前实验组件
@@ -36,7 +37,8 @@ const experimentName = computed(() => {
   const nameMap = {
     meeting: '相遇&追及问题',
     'train-bridge': '火车过桥问题',
-    'force-composition': '力的合成与分解'
+    'force-composition': '力的合成与分解',
+    lever: '杠杆平衡'
   }
   return nameMap[route.params.expId] || '物理实验'
 })
