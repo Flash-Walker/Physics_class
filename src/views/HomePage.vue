@@ -97,7 +97,7 @@ const chapterList = [
     icon: '⚙️',
     title: '力学',
     description: '运动学、受力分析、杠杆滑轮、浮力等经典力学实验',
-    count: 9
+    count: 7
   },
   {
     id: 'heat',
