@@ -309,38 +309,33 @@ const canvasState = computed(() => ({
   pull: currentPreset.value.pull
 }))
 
-// 几何常量
-// 定滑轮组偏左（cxS）、动滑轮组偏右（cxM），教学示意图经典布局
+// 几何常量：定滑轮组与动滑轮组同轴（同一竖直线），组内双轮 8 字形叠放相切
 const GEOM = {
   beamY: 34, // 天花板横梁
   fixY: 110, // 定滑轮组中心 y（单轮时即轮心）
   movY0: 250, // 动滑轮组中心 y 初始
   loadY0: 302, // 重物顶部初始 y
-  pxPerCm: 6,
-  offset: 40 // 定滑轮组与动滑轮组的水平错开距离
+  pxPerCm: 6
 }
 
 const drawScene = (ctx, state, utils) => {
   const w = utils.canvasWidth
   const h = utils.canvasHeight
   const cx = w / 2
-  const cxS = cx - GEOM.offset // 定滑轮组 x
-  const cxM = cx + GEOM.offset // 动滑轮组 x
   const preset = PRESETS.find(p => p.id === state.preset)
   const hPx = state.h * GEOM.pxPerCm
   const movY = GEOM.movY0 - hPx
   const isDouble = preset.id === '2f2m4' || preset.id === '2f2m5'
-  const loadX = preset.id === 'fix1' ? cxS - 70 : cxM
+  const loadX = preset.id === 'fix1' ? cx - 80 : cx
   const loadTop = preset.id === 'fix1' ? GEOM.loadY0 - hPx : movY + 52
-  const pullX = preset.pull === 'up' ? cxM + 70 : cxS + 70
 
   // 自由端位置（s = n·h，超出画布则截断在边缘）
   const pullEnd0 = preset.pull === 'up' ? GEOM.movY0 + 30 : (preset.id === 'fix1' ? GEOM.loadY0 + 30 : GEOM.fixY + 190)
   const pullRaw = preset.pull === 'up' ? pullEnd0 - state.n * hPx : pullEnd0 + state.n * hPx
   const pullY = Math.max(46, Math.min(h - 46, pullRaw))
 
-  // 绳子路径（一根整体：固定端 → 依次绕过各滑轮 → 自由端）
-  const path = buildPath(preset.id, cxS, cxM, movY, loadTop, pullY)
+  // 绳子路径（一根整体：固定端 → 依次绕过各滑轮 → 自由端，无中间折点）
+  const path = buildPath(preset.id, cx, movY, loadTop, pullY)
 
   // ===== 天花板横梁 =====
   ctx.fillStyle = '#2c3e50'
@@ -349,26 +344,26 @@ const drawScene = (ctx, state, utils) => {
   // ===== 刻度尺（左侧，0-20cm） =====
   drawRuler(ctx, state.h, loadX)
 
-  // ===== 绳子 =====
+  // ===== 绳子（先画，被轮子遮挡处 = 从轮后经过） =====
   drawRope(ctx, path)
 
-  // ===== 固定端钩子（绳子一端系在滑轮框架/横梁上） =====
-  drawAnchorHook(ctx, path[0], preset.id, cxS, cxM, movY)
+  // ===== 固定端钩子（绳子一端系在滑轮组轴上） =====
+  drawAnchorHook(ctx, path[0], preset.id, cx, movY)
 
-  // ===== 滑轮（双轮 8 字形同轴叠放 / 单轮） =====
+  // ===== 滑轮（8字形同轴叠放 / 单轮） =====
   if (preset.id === 'fix1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
-    drawPulley(ctx, cxS, GEOM.fixY, 20, true)
+    drawPulley(ctx, cx, GEOM.fixY, 20, true)
   }
   if (isDouble) {
-    drawPulley(ctx, cxS, GEOM.fixY - 20, 20, true) // 定滑轮上轮（挂梁）
-    drawPulley(ctx, cxS, GEOM.fixY + 20, 20, false) // 定滑轮下轮
+    drawPulley(ctx, cx, GEOM.fixY - 20, 20, true) // 定滑轮上轮（挂梁）
+    drawPulley(ctx, cx, GEOM.fixY + 20, 20, false) // 定滑轮下轮
   }
   if (preset.id === 'mov1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
-    drawPulley(ctx, cxM, movY, 16, false)
+    drawPulley(ctx, cx, movY, 16, false)
   }
   if (isDouble) {
-    drawPulley(ctx, cxM, movY - 16, 16, false) // 动滑轮上轮
-    drawPulley(ctx, cxM, movY + 16, 16, false) // 动滑轮下轮
+    drawPulley(ctx, cx, movY - 16, 16, false) // 动滑轮上轮
+    drawPulley(ctx, cx, movY + 16, 16, false) // 动滑轮下轮
   }
 
   // ===== 吊架 + 重物 =====
@@ -377,8 +372,8 @@ const drawScene = (ctx, state, utils) => {
     ctx.strokeStyle = '#555'
     ctx.lineWidth = 3
     ctx.beginPath()
-    ctx.moveTo(cxM, hangerTop)
-    ctx.lineTo(cxM, loadTop)
+    ctx.moveTo(cx, hangerTop)
+    ctx.lineTo(cx, loadTop)
     ctx.stroke()
   }
   drawLoad(ctx, loadX, loadTop, state.G)
@@ -386,85 +381,78 @@ const drawScene = (ctx, state, utils) => {
   // ===== 拉力箭头 + 标签 =====
   const last = path[path.length - 1]
   const dir = preset.pull === 'up' ? -1 : 1
-  drawPullArrow(ctx, pullX, pullY, dir)
+  drawPullArrow(ctx, last.x, pullY, dir)
   ctx.fillStyle = '#f5a623'
   ctx.font = 'bold 12px sans-serif'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText(`F=${state.F.toFixed(2)}N ${preset.pull === 'up' ? '↑' : '↓'}`, pullX + 12, pullY)
+  ctx.fillText(`F=${state.F.toFixed(2)}N ${preset.pull === 'up' ? '↑' : '↓'}`, last.x + 12, pullY)
 }
 
 // ========== 绳子路径设计 ==========
-// 一根完整的绳子：一端固定在滑轮组框架钩上，依次绕过每个滑轮（与轮缘相切），自由端拉出。
-// 路径元素：{ t:'line', x, y } 端点/中间锚点；{ t:'arc', cx, cy, r, ccw } 滑轮圆弧。
-// 绘制时每个 arc 的起止角由前后锚点自动求出，直线段截断于轮缘切点，圆弧贴轮缘走。
-const buildPath = (id, cxS, cxM, movY, loadTop, pullY) => {
+// 一根完整的绳子：一端固定在滑轮组轴上，依次绕过每个滑轮（贴轮缘相切），自由端拉出。
+// 同轴布局下绳段自然竖直，与中间轮子的投影重叠处由轮子遮挡（三维中绳子从轮后经过）。
+// 路径元素：{ t:'line', x, y } 端点；{ t:'arc', cx, cy, r, ccw } 滑轮圆弧。
+const buildPath = (id, cx, movY, loadTop, pullY) => {
   const G = GEOM
   switch (id) {
-    // 单定滑轮：绳端系重物 → 绕过定滑轮 → 自由端下拉
+    // 单定滑轮：绳端系重物 → 绕定滑轮下半圈 → 自由端下拉
     case 'fix1':
       return [
-        { t: 'line', x: cxS - 70, y: loadTop },
-        { t: 'arc', cx: cxS, cy: G.fixY, r: 20, ccw: true },
-        { t: 'line', x: cxS + 70, y: pullY }
+        { t: 'line', x: cx - 80, y: loadTop },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: true },
+        { t: 'line', x: cx + 80, y: pullY }
       ]
-    // 单动滑轮：固定端挂横梁钩 → 绕过动滑轮 → 自由端上拉
+    // 单动滑轮：固定端挂横梁钩 → 绕动滑轮上圈 → 自由端上拉
     case 'mov1':
       return [
-        { t: 'line', x: cxM - 70, y: G.beamY + 8 },
-        { t: 'arc', cx: cxM, cy: movY, r: 16, ccw: false },
-        { t: 'line', x: cxM + 70, y: pullY }
+        { t: 'line', x: cx - 70, y: G.beamY + 8 },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
-    // 一定一动 n=2：绳端系定滑轮轴 → 绕动滑轮上圈 → 绕定滑轮 → 自由端下拉
+    // 一定一动 n=2：绳端系定滑轮轴 → 绕动滑轮(回头整圈) → 绕定滑轮 → 自由端下拉
     case '1f1m2':
       return [
-        { t: 'line', x: cxS - 24, y: G.fixY },
-        { t: 'arc', cx: cxM, cy: movY, r: 16, ccw: false },
-        { t: 'line', x: cxM + 60, y: 170 },
-        { t: 'arc', cx: cxS, cy: G.fixY, r: 20, ccw: true },
-        { t: 'line', x: cxS + 70, y: pullY }
+        { t: 'line', x: cx - 28, y: G.fixY },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: true },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
-    // 一定一动 n=3：绳端系动滑轮轴 → 绕定滑轮下圈 → 绕动滑轮上圈 → 自由端上拉
+    // 一定一动 n=3：绳端系动滑轮轴 → 绕定滑轮(回头整圈) → 绕动滑轮上圈 → 自由端上拉
     case '1f1m3':
       return [
-        { t: 'line', x: cxM - 24, y: movY },
-        { t: 'arc', cx: cxS, cy: G.fixY, r: 20, ccw: false },
-        { t: 'line', x: cxS - 60, y: 150 },
-        { t: 'arc', cx: cxM, cy: movY, r: 16, ccw: false },
-        { t: 'line', x: cxM + 70, y: pullY }
+        { t: 'line', x: cx - 28, y: movY },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: false },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
-    // 二定二动 n=4：绳端系定滑轮组轴 → M1上圈 → D2下圈 → M2上圈 → D1 → 自由端下拉
+    // 二定二动 n=4：绳端系定滑轮组轴 → M1回头 → D2回头 → M2回头 → D1回头 → 自由端下拉
     case '2f2m4':
       return [
-        { t: 'line', x: cxS - 24, y: G.fixY },
-        { t: 'arc', cx: cxM, cy: movY - 16, r: 16, ccw: false },
-        { t: 'line', x: cxM + 60, y: 170 },
-        { t: 'arc', cx: cxS, cy: G.fixY + 20, r: 20, ccw: false },
-        { t: 'line', x: cxS - 60, y: 160 },
-        { t: 'arc', cx: cxM, cy: movY + 16, r: 16, ccw: false },
-        { t: 'line', x: cxM + 60, y: 290 },
-        { t: 'arc', cx: cxS, cy: G.fixY - 20, r: 20, ccw: true },
-        { t: 'line', x: cxS + 70, y: pullY }
+        { t: 'line', x: cx - 28, y: G.fixY },
+        { t: 'arc', cx, cy: movY - 16, r: 16, ccw: false },
+        { t: 'arc', cx, cy: G.fixY + 20, r: 20, ccw: true },
+        { t: 'arc', cx, cy: movY + 16, r: 16, ccw: false },
+        { t: 'arc', cx, cy: G.fixY - 20, r: 20, ccw: true },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
-    // 二定二动 n=5：绳端系动滑轮组轴 → D1下圈 → M1上圈 → D2下圈 → M2上圈 → 自由端上拉
+    // 二定二动 n=5：绳端系动滑轮组轴 → D1回头 → M1回头 → D2回头 → M2上圈 → 自由端上拉
     case '2f2m5':
       return [
-        { t: 'line', x: cxM - 24, y: movY },
-        { t: 'arc', cx: cxS, cy: G.fixY - 20, r: 20, ccw: false },
-        { t: 'line', x: cxS - 60, y: 120 },
-        { t: 'arc', cx: cxM, cy: movY - 16, r: 16, ccw: false },
-        { t: 'line', x: cxM + 60, y: 170 },
-        { t: 'arc', cx: cxS, cy: G.fixY + 20, r: 20, ccw: false },
-        { t: 'line', x: cxS - 60, y: 160 },
-        { t: 'arc', cx: cxM, cy: movY + 16, r: 16, ccw: false },
-        { t: 'line', x: cxM + 70, y: pullY }
+        { t: 'line', x: cx - 28, y: movY },
+        { t: 'arc', cx, cy: G.fixY - 20, r: 20, ccw: false },
+        { t: 'arc', cx, cy: movY - 16, r: 16, ccw: false },
+        { t: 'arc', cx, cy: G.fixY + 20, r: 20, ccw: true },
+        { t: 'arc', cx, cy: movY + 16, r: 16, ccw: false },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
     default:
       return []
   }
 }
 
-// 绳子绘制：直线段截断于轮缘切点，滑轮处画相切圆弧
+// 绳子绘制：直线段截断于轮缘外切点，滑轮处画贴缘圆弧（半径 r+2 露出 2px 相切效果）
+// 入出角差 < 20°（回头）→ 绕轮一整圈；否则按 ccw 方向走自然短弧
 const drawRope = (ctx, path) => {
   ctx.strokeStyle = '#6b7280'
   ctx.lineWidth = 2.5
@@ -478,16 +466,19 @@ const drawRope = (ctx, path) => {
       const next = path[i + 1]
       const aIn = Math.atan2(prev.y - p.cy, prev.x - p.cx)
       const aOut = Math.atan2(next.y - p.cy, next.x - p.cx)
-      const inPt = { x: p.cx + p.r * Math.cos(aIn), y: p.cy + p.r * Math.sin(aIn) }
+      const inPt = { x: p.cx + (p.r + 2) * Math.cos(aIn), y: p.cy + (p.r + 2) * Math.sin(aIn) }
       if (pen) ctx.lineTo(inPt.x, inPt.y)
       else ctx.moveTo(inPt.x, inPt.y)
-      if (Math.abs(aOut - aIn) < 0.01) {
-        // 入出同向（U 形回头）：绳子绕轮一整圈
-        ctx.arc(p.cx, p.cy, p.r, aIn, aIn + (p.ccw ? -2 * Math.PI : 2 * Math.PI), p.ccw)
+      let da = aOut - aIn
+      while (da > Math.PI) da -= 2 * Math.PI
+      while (da < -Math.PI) da += 2 * Math.PI
+      if (Math.abs(da) < 0.35) {
+        // 回头：绕轮一整圈
+        ctx.arc(p.cx, p.cy, p.r + 2, aIn, aIn + 2 * Math.PI, false)
       } else {
-        ctx.arc(p.cx, p.cy, p.r, aIn, aOut, p.ccw)
+        ctx.arc(p.cx, p.cy, p.r + 2, aIn, aOut, p.ccw)
       }
-      pen = { x: p.cx + p.r * Math.cos(aOut), y: p.cy + p.r * Math.sin(aOut) }
+      pen = { x: p.cx + (p.r + 2) * Math.cos(aOut), y: p.cy + (p.r + 2) * Math.sin(aOut) }
     } else {
       if (pen) ctx.lineTo(p.x, p.y)
       else ctx.moveTo(p.x, p.y)
@@ -497,8 +488,8 @@ const drawRope = (ctx, path) => {
   ctx.stroke()
 }
 
-// 固定端钩子：绳子一端系在滑轮组框架/轴（或横梁）上
-const drawAnchorHook = (ctx, anchor, presetId, cxS, cxM, movY) => {
+// 固定端钩子：绳子一端系在滑轮组轴上（或横梁钩）
+const drawAnchorHook = (ctx, anchor, presetId, cx, movY) => {
   ctx.strokeStyle = '#2c3e50'
   ctx.lineWidth = 3
   ctx.beginPath()
@@ -507,14 +498,15 @@ const drawAnchorHook = (ctx, anchor, presetId, cxS, cxM, movY) => {
     ctx.moveTo(anchor.x, GEOM.beamY)
     ctx.lineTo(anchor.x, anchor.y)
   } else if (presetId === 'fix1') {
-    // 绳端直接系重物吊环（无额外钩子）
+    // 绳端直接系重物吊环
     return
   } else {
-    // 系在滑轮组轴上：从固定端点连线到两轮之间的轴心
-    const axleX = presetId === '1f1m2' || presetId === '2f2m4' ? cxS : cxM
-    const axleY = presetId === '1f1m2' ? GEOM.fixY : (presetId === '2f2m4' ? GEOM.fixY : movY)
+    // 系在滑轮组轴上：从固定端点连线到轴心（截断于轮缘）
+    const axleX = cx
+    const axleY = presetId === '1f1m2' || presetId === '2f2m4' ? GEOM.fixY : movY
+    const rimX = cx - (presetId === '1f1m2' || presetId === '2f2m4' ? 20 : 16)
     ctx.moveTo(anchor.x, axleY)
-    ctx.lineTo(axleX, axleY)
+    ctx.lineTo(rimX, axleY)
   }
   ctx.stroke()
   // 钩尖小圆
