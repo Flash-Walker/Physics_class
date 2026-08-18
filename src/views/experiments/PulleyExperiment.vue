@@ -54,9 +54,18 @@
               <input type="range" min="50" max="100" step="5" v-model.number="etaFric" />
               <div class="slider-sub">100% = 无摩擦；调低模拟摩擦损耗</div>
             </div>
+
+            <div class="slider-row">
+              <div class="slider-head">
+                <span>自由端速度 v</span>
+                <span class="slider-val">{{ vPull.toFixed(1) }} cm/s</span>
+              </div>
+              <input type="range" min="1" max="20" step="0.5" v-model.number="vPull" />
+              <div class="slider-sub">重物上升速度 = v/n = {{ (vPull / n).toFixed(1) }} cm/s</div>
+            </div>
           </div>
 
-          <p class="control-tip">💡 点"开始"提升重物 20cm，观察自由端拉动距离 s = n×h</p>
+          <p class="control-tip">💡 点"开始"提升重物 20cm，观察自由端以 n 倍速度、n 倍距离拉动</p>
         </div>
       </template>
 
@@ -79,6 +88,7 @@
             <div class="formula-box">
               <div class="formula-line">F = (G + G动) / (n·η′)</div>
               <div class="formula-line">s = n·h</div>
+              <div class="formula-line">v自由端 = n·v重物</div>
               <div class="formula-line">η = Gh/(Fs) = G/(nF)</div>
             </div>
           </div>
@@ -108,6 +118,16 @@
                   <div class="card-value">{{ s.toFixed(1) }}<span class="card-unit">cm</span></div>
                 </div>
               </div>
+              <div class="card-row">
+                <div class="data-card half">
+                  <div class="card-label">自由端速度 v</div>
+                  <div class="card-value">{{ vPull.toFixed(1) }}<span class="card-unit">cm/s</span></div>
+                </div>
+                <div class="data-card half">
+                  <div class="card-label">重物速度 v/n</div>
+                  <div class="card-value">{{ (vPull / n).toFixed(1) }}<span class="card-unit">cm/s</span></div>
+                </div>
+              </div>
               <div class="data-card" :class="{ perfect: eta >= 100 }">
                 <div class="card-label">机械效率 η</div>
                 <div class="card-value">{{ eta }}<span class="card-unit">%</span></div>
@@ -130,6 +150,7 @@
             <div class="formula-detail">
               <div class="detail-line">F = (G+G动)/(n·η′) = ({{ G }}+{{ Gd.toFixed(1) }})/({{ n }}×{{ (etaFric / 100).toFixed(2) }}) = {{ F.toFixed(2) }}N</div>
               <div class="detail-line">s = n·h = {{ n }}×{{ hCm.toFixed(1) }} = {{ s.toFixed(1) }}cm</div>
+              <div class="detail-line">v重物 = v/n = {{ vPull.toFixed(1) }}/{{ n }} = {{ (vPull / n).toFixed(1) }}cm/s</div>
               <div class="detail-line">η = G/(n·F) = {{ G }}/({{ n }}×{{ F.toFixed(2) }}) = {{ eta }}%</div>
             </div>
           </div>
@@ -160,7 +181,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import ExperimentLayout from '@/layouts/ExperimentLayout.vue'
 import ExperimentCanvas from '@/components/ExperimentCanvas.vue'
 import { pulleyConfig } from '@/config/experiments/mechanics/pulley.js'
@@ -185,6 +206,7 @@ const presetId = ref('1f1m2') // 默认：一定一动 n=2 下拉
 const m = ref(1.0) // 重物质量 kg
 const mPulley = ref(0) // 动滑轮质量 g（默认 0）
 const etaFric = ref(100) // 摩擦效率 %（默认 100 = 无摩擦）
+const vPull = ref(4) // 自由端速度 cm/s（默认 4）
 
 const currentPreset = computed(() => PRESETS.find(p => p.id === presetId.value))
 const n = computed(() => currentPreset.value.n)
@@ -202,10 +224,9 @@ const selectPreset = (id) => {
   hCm.value = 0 // 结构变化，重物复位
 }
 
-// ========== 提升动画 ==========
+// ========== 提升动画（速度驱动：重物速度 = v/n） ==========
 
 const LIFT_H = 20 // cm
-const LIFT_DUR = 2.5 // 秒
 
 const animState = ref('idle') // idle / running / paused
 const hCm = ref(0)
@@ -217,7 +238,7 @@ const tick = (now) => {
   const dt = lastT ? Math.min((now - lastT) / 1000, 0.1) : 0.016
   lastT = now
   if (animState.value === 'running') {
-    hCm.value = Math.min(LIFT_H, hCm.value + (LIFT_H / LIFT_DUR) * dt)
+    hCm.value = Math.min(LIFT_H, hCm.value + (vPull.value / n.value) * dt)
   }
   if (animState.value === 'running' && hCm.value < LIFT_H) {
     rafId = requestAnimationFrame(tick)
@@ -253,6 +274,7 @@ const handleReset = () => {
   m.value = 1.0
   mPulley.value = 0
   etaFric.value = 100
+  vPull.value = 4
   hCm.value = 0
   animState.value = 'idle'
   if (rafId) {
@@ -290,11 +312,10 @@ const canvasState = computed(() => ({
 // 几何常量
 const GEOM = {
   beamY: 34, // 天花板横梁
-  fixY: 110, // 定滑轮轴心
-  movY0: 250, // 动滑轮初始轴心
+  fixY: 110, // 定滑轮组中心（单轮时即轮心）
+  movY0: 250, // 动滑轮组中心初始
   loadY0: 302, // 重物顶部初始 y
-  pxPerCm: 6,
-  pulleyGap: 40 // 双滑轮左右间距
+  pxPerCm: 6
 }
 
 const drawScene = (ctx, state, utils) => {
@@ -304,31 +325,17 @@ const drawScene = (ctx, state, utils) => {
   const preset = PRESETS.find(p => p.id === state.preset)
   const hPx = state.h * GEOM.pxPerCm
   const movY = GEOM.movY0 - hPx
-  const loadY = GEOM.loadY0 - hPx
+  const isDouble = preset.id === '2f2m4' || preset.id === '2f2m5'
+  const loadX = preset.id === 'fix1' ? cx - 80 : cx
+  const loadTop = preset.id === 'fix1' ? GEOM.loadY0 - hPx : movY + 52
 
-  // 自由端位置（s = n·h，可能超出画布则截断）
+  // 自由端位置（s = n·h，超出画布则截断在边缘）
   const pullEnd0 = preset.pull === 'up' ? GEOM.movY0 + 30 : (preset.id === 'fix1' ? GEOM.loadY0 + 30 : GEOM.fixY + 190)
   const pullRaw = preset.pull === 'up' ? pullEnd0 - state.n * hPx : pullEnd0 + state.n * hPx
   const pullY = Math.max(46, Math.min(h - 46, pullRaw))
 
-  // 滑轮位置
-  const fixed = []
-  const moving = []
-  if (preset.id === 'fix1' || preset.id === '1f1m2' || preset.id === '1f1m3') fixed.push({ x: cx, y: GEOM.fixY })
-  if (preset.id === '2f2m4' || preset.id === '2f2m5') {
-    fixed.push({ x: cx - GEOM.pulleyGap, y: GEOM.fixY }, { x: cx + GEOM.pulleyGap, y: GEOM.fixY })
-  }
-  if (preset.id === 'mov1' || preset.id === '1f1m2' || preset.id === '1f1m3') moving.push({ x: cx, y: movY })
-  if (preset.id === '2f2m4' || preset.id === '2f2m5') {
-    moving.push({ x: cx - GEOM.pulleyGap, y: movY }, { x: cx + GEOM.pulleyGap, y: movY })
-  }
-
-  // 重物位置
-  const loadX = preset.id === 'fix1' ? cx - 80 : cx
-  const loadTop = preset.id === 'fix1' ? loadY : movY + 52
-
-  // 绳子路径
-  const path = buildRopePath(preset, cx, movY, loadTop, pullY)
+  // 绳子路径（直线锚点 + 滑轮圆弧）
+  const path = buildPath(preset.id, cx, movY, loadTop, pullY)
 
   // ===== 天花板横梁 =====
   ctx.fillStyle = '#2c3e50'
@@ -337,14 +344,8 @@ const drawScene = (ctx, state, utils) => {
   // ===== 刻度尺（左侧，0-20cm） =====
   drawRuler(ctx, state.h, loadX)
 
-  // ===== 绳子（先画，滑轮盖在上面） =====
-  ctx.strokeStyle = '#6b7280'
-  ctx.lineWidth = 2.5
-  ctx.lineJoin = 'round'
-  ctx.beginPath()
-  ctx.moveTo(path[0].x, path[0].y)
-  for (let i = 1; i < path.length; i++) ctx.lineTo(path[i].x, path[i].y)
-  ctx.stroke()
+  // ===== 绳子 =====
+  drawRope(ctx, path)
 
   // ===== 固定端小钩 =====
   ctx.fillStyle = '#2c3e50'
@@ -352,95 +353,136 @@ const drawScene = (ctx, state, utils) => {
   ctx.arc(path[0].x, path[0].y, 4, 0, Math.PI * 2)
   ctx.fill()
 
-  // ===== 滑轮 =====
-  fixed.forEach(p => drawPulley(ctx, p.x, p.y, 20, true, GEOM.beamY))
-  moving.forEach(p => drawPulley(ctx, p.x, p.y, 16, false))
+  // ===== 滑轮（双轮 8 字形同轴叠放 / 单轮） =====
+  if (preset.id === 'fix1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
+    drawPulley(ctx, cx, GEOM.fixY, 20, true)
+  }
+  if (isDouble) {
+    drawPulley(ctx, cx, GEOM.fixY - 20, 20, true) // 定滑轮上轮（挂梁）
+    drawPulley(ctx, cx, GEOM.fixY + 20, 20, false) // 定滑轮下轮
+  }
+  if (preset.id === 'mov1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
+    drawPulley(ctx, cx, movY, 16, false)
+  }
+  if (isDouble) {
+    drawPulley(ctx, cx, movY - 16, 16, false) // 动滑轮上轮
+    drawPulley(ctx, cx, movY + 16, 16, false) // 动滑轮下轮
+  }
 
-  // ===== 双动滑轮吊架 =====
-  if (preset.id === '2f2m4' || preset.id === '2f2m5') {
+  // ===== 吊架 + 重物 =====
+  if (preset.id !== 'fix1') {
+    const hangerTop = isDouble ? movY + 32 : movY + 16
     ctx.strokeStyle = '#555'
     ctx.lineWidth = 3
     ctx.beginPath()
-    ctx.moveTo(cx - GEOM.pulleyGap, movY + 16)
-    ctx.lineTo(cx - GEOM.pulleyGap, movY + 34)
-    ctx.lineTo(cx + GEOM.pulleyGap, movY + 34)
-    ctx.lineTo(cx + GEOM.pulleyGap, movY + 16)
+    ctx.moveTo(cx, hangerTop)
+    ctx.lineTo(cx, loadTop)
     ctx.stroke()
   }
-
-  // ===== 重物 =====
   drawLoad(ctx, loadX, loadTop, state.G)
 
   // ===== 拉力箭头 + 标签 =====
+  const last = path[path.length - 1]
   const dir = preset.pull === 'up' ? -1 : 1
-  drawPullArrow(ctx, path[path.length - 1].x, pullY, dir)
+  drawPullArrow(ctx, last.x, pullY, dir)
   ctx.fillStyle = '#f5a623'
   ctx.font = 'bold 12px sans-serif'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText(`F=${state.F.toFixed(2)}N ${preset.pull === 'up' ? '↑' : '↓'}`, path[path.length - 1].x + 12, pullY)
+  ctx.fillText(`F=${state.F.toFixed(2)}N ${preset.pull === 'up' ? '↑' : '↓'}`, last.x + 12, pullY)
 }
 
-// 绳子路径：按绕法定义折线锚点
-const buildRopePath = (preset, cx, movY, loadTop, pullY) => {
-  const GAP = GEOM.pulleyGap
-  switch (preset.id) {
+// 绳子路径：直线锚点 + 滑轮圆弧（r=轮半径，ccw=绕行方向）
+// 绘制时圆弧起止角由前后锚点自动求出，绳子与轮缘相切
+const buildPath = (id, cx, movY, loadTop, pullY) => {
+  const G = GEOM
+  switch (id) {
     case 'fix1':
       return [
-        { x: cx - 80, y: loadTop },
-        { x: cx, y: GEOM.fixY },
-        { x: cx + 80, y: pullY }
+        { t: 'line', x: cx - 80, y: loadTop },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: true },
+        { t: 'line', x: cx + 80, y: pullY }
       ]
     case 'mov1':
       return [
-        { x: cx - 70, y: GEOM.beamY + 8 },
-        { x: cx, y: movY },
-        { x: cx + 70, y: pullY }
+        { t: 'line', x: cx - 70, y: G.beamY + 8 },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
     case '1f1m2':
       return [
-        { x: cx - 70, y: GEOM.beamY + 8 },
-        { x: cx, y: movY },
-        { x: cx, y: GEOM.fixY },
-        { x: cx + 70, y: pullY }
+        { t: 'line', x: cx - 70, y: G.beamY + 8 },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'line', x: cx, y: G.fixY + 20 },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: true },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
     case '1f1m3':
       return [
-        { x: cx - 70, y: movY + 30 },
-        { x: cx, y: GEOM.fixY },
-        { x: cx, y: movY },
-        { x: cx + 70, y: pullY }
+        { t: 'line', x: cx - 70, y: movY + 30 },
+        { t: 'arc', cx, cy: G.fixY, r: 20, ccw: true },
+        { t: 'line', x: cx, y: movY - 24 },
+        { t: 'arc', cx, cy: movY, r: 16, ccw: false },
+        { t: 'line', x: cx + 70, y: pullY }
       ]
     case '2f2m4':
-      return [
-        { x: cx - GAP, y: GEOM.beamY + 8 },
-        { x: cx - GAP, y: movY },
-        { x: cx + GAP, y: GEOM.fixY },
-        { x: cx + GAP, y: movY },
-        { x: cx + GAP, y: GEOM.fixY },
-        { x: cx + GAP, y: pullY }
-      ]
     case '2f2m5':
       return [
-        { x: cx - GAP, y: movY + 30 },
-        { x: cx - GAP, y: GEOM.fixY },
-        { x: cx - GAP, y: movY },
-        { x: cx + GAP, y: GEOM.fixY },
-        { x: cx + GAP, y: movY },
-        { x: cx + GAP, y: pullY }
+        { t: 'line', x: cx - 55, y: id === '2f2m4' ? G.beamY + 10 : movY + 52 },
+        { t: 'arc', cx, cy: G.fixY - 20, r: 20, ccw: true }, // 定滑轮上轮
+        { t: 'line', x: cx, y: movY - 40 },
+        { t: 'arc', cx, cy: movY - 16, r: 16, ccw: false }, // 动滑轮上轮
+        { t: 'line', x: cx, y: G.fixY + 44 },
+        { t: 'arc', cx, cy: G.fixY + 20, r: 20, ccw: true }, // 定滑轮下轮
+        { t: 'line', x: cx, y: movY - 4 },
+        { t: 'arc', cx, cy: movY + 16, r: 16, ccw: false }, // 动滑轮下轮
+        { t: 'line', x: cx + 55, y: pullY }
       ]
     default:
       return []
   }
 }
 
-const drawPulley = (ctx, x, y, r, isFixed, beamY) => {
-  if (isFixed) {
+// 绳子绘制：直线段截断于轮缘切点，滑轮处画相切圆弧
+const drawRope = (ctx, path) => {
+  ctx.strokeStyle = '#6b7280'
+  ctx.lineWidth = 2.5
+  ctx.lineJoin = 'round'
+  ctx.beginPath()
+  let pen = null
+  for (let i = 0; i < path.length; i++) {
+    const p = path[i]
+    if (p.t === 'arc') {
+      const prev = pen || path[i - 1]
+      const next = path[i + 1]
+      const aIn = Math.atan2(prev.y - p.cy, prev.x - p.cx)
+      const aOut = Math.atan2(next.y - p.cy, next.x - p.cx)
+      const inPt = { x: p.cx + p.r * Math.cos(aIn), y: p.cy + p.r * Math.sin(aIn) }
+      if (pen) ctx.lineTo(inPt.x, inPt.y)
+      else ctx.moveTo(inPt.x, inPt.y)
+      if (Math.abs(aOut - aIn) < 0.01) {
+        // U 形回头：绳子绕轮一整圈（动滑轮组中段、定滑轮下轮）
+        ctx.arc(p.cx, p.cy, p.r, aIn, aIn + (p.ccw ? -2 * Math.PI : 2 * Math.PI), p.ccw)
+      } else {
+        ctx.arc(p.cx, p.cy, p.r, aIn, aOut, p.ccw)
+      }
+      pen = { x: p.cx + p.r * Math.cos(aOut), y: p.cy + p.r * Math.sin(aOut) }
+    } else {
+      if (pen) ctx.lineTo(p.x, p.y)
+      else ctx.moveTo(p.x, p.y)
+      pen = p
+    }
+  }
+  ctx.stroke()
+}
+
+const drawPulley = (ctx, x, y, r, hang) => {
+  if (hang) {
     // 定滑轮挂梁线
     ctx.strokeStyle = '#2c3e50'
     ctx.lineWidth = 3
     ctx.beginPath()
-    ctx.moveTo(x, beamY)
+    ctx.moveTo(x, GEOM.beamY)
     ctx.lineTo(x, y - r)
     ctx.stroke()
   }
