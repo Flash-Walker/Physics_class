@@ -46,6 +46,18 @@
           </div>
 
           <div class="ctrl-group">
+            <div class="group-label">⏱ 注液速度</div>
+            <div class="slider-row">
+              <div class="slider-head">
+                <span>注液速度 v注</span>
+                <span class="slider-val">{{ flowRate }} L/s</span>
+              </div>
+              <input type="range" min="5" max="500" step="5" v-model.number="flowRate" />
+              <div class="slider-sub">{{ fillTimeText }}注满（容积 {{ (S * H).toFixed(2) }} m³ = {{ (S * H * 1000).toFixed(0) }} L）</div>
+            </div>
+          </div>
+
+          <div class="ctrl-group">
             <div class="group-label">🧱 物体数量（重叠体研究）</div>
             <div class="preset-grid">
               <button
@@ -98,7 +110,7 @@
             </div>
           </div>
 
-          <p class="control-tip">💡 点"开始"向容器注液（3 秒注满），实时观察浮力/合力与物体状态变化</p>
+          <p class="control-tip">💡 点"开始"按设定速度向容器注液，实时观察浮力/合力与物体状态变化</p>
         </div>
       </template>
 
@@ -214,6 +226,7 @@ const G_CONST = 10 // g = 10 N/kg
 const S = ref(0.5) // 容器底面积 m²
 const H = ref(2) // 容器高 m
 const rhoL = ref(1.0) // 液体密度 g/cm³
+const flowRate = ref(100) // 注液速度 L/s
 const N = ref(1) // 物体数量
 const objs = reactive([{ s: 0.25, h: 0.5, rho: 0.6 }]) // 每个物体：底面积/高度/密度
 
@@ -259,13 +272,19 @@ const hSub = ref([]) // 各物体浸没高度
 const fb = ref([]) // 各物体浮力
 const state = ref('sink') // sink / float / suspend
 
-const DURATION = 3 // 注满耗时 s
 let rafId = null
 let t0 = 0
 let elapsed0 = 0
 
 // ========== 物理计算 ==========
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))
+
+// 等效注满时间（随容器容积与注液速度变化）
+const fillTime = computed(() => (S.value * H.value * 1000) / flowRate.value) // s
+const fillTimeText = computed(() => {
+  const s = fillTime.value
+  return s < 90 ? '约 ' + s.toFixed(0) + ' 秒' : '约 ' + (s / 60).toFixed(1) + ' 分钟'
+})
 
 // 纯函数：给定参数与液面深度，求物体位置/浸没/浮力/状态
 const computePhysics = (S, H, rhoL, objs, d) => {
@@ -347,8 +366,9 @@ const canvasState = computed(() => ({
 
 // ========== 动画控制 ==========
 const applyFrame = (t) => {
-  const p = Math.min(1, t / DURATION)
-  d.value = H.value * p
+  // 注入体积 = 注液速度 × 时间（体积驱动，速度可随时调整）
+  const vinjTotal = (flowRate.value / 1000) * t // m³
+  d.value = Math.min(H.value, vinjTotal / S.value)
   const phys = computePhysics(S.value, H.value, rhoL.value, objs, d.value)
   y.value = phys.y
   hSub.value = phys.hSub
@@ -367,7 +387,7 @@ const applyFrame = (t) => {
 const step = (now) => {
   const t = (now - t0) / 1000 + elapsed0
   applyFrame(t)
-  if (t >= DURATION) {
+  if (d.value >= H.value - 1e-9) {
     animState.value = 'finished'
     rafId = null
     return
@@ -571,7 +591,7 @@ const drawChart = () => {
   const ph = chartH - mt - mb
 
   const data = series.value
-  const tMax = Math.max(DURATION, data.length ? data[data.length - 1].t : 0)
+  const tMax = data.length ? Math.max(1, data[data.length - 1].t) : 1
   let vMax = 0.001
   let fMax = 0.001
   let fMin = 0
