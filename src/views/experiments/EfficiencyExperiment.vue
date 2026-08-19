@@ -338,8 +338,8 @@ const drawScene = (ctx, state, utils) => {
   // 布局：按最大尺寸固定缩放（改参数时画面不跳）
   const marginL = 118
   const marginR = 50
-  const marginT = 64
-  const marginB = 46
+  const marginT = 56
+  const marginB = 62
   const scale = Math.min((w - marginL - marginR) / 5.4, (h - marginT - marginB) / 3.4)
   const groundY = h - marginB
   const baseX = marginL + 8
