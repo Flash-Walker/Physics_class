@@ -343,7 +343,8 @@ const drawScene = (ctx, state, utils) => {
   const scale = Math.min((w - marginL - marginR) / 5.4, (h - marginT - marginB) / 3.4)
   const groundY = h - marginB
   const baseX = marginL + 8
-  const topX = baseX + state.L * scale
+  // 水平投影 = √(L²−h²)，保证斜边真实长度为 L·scale、斜边角 = θ（小车才能贴斜面）
+  const topX = baseX + Math.sqrt(state.L * state.L - state.h * state.h) * scale
   const topY = groundY - state.h * scale
 
   // 地面线
@@ -385,9 +386,10 @@ const drawScene = (ctx, state, utils) => {
   ctx.textAlign = 'right'
   ctx.textBaseline = 'middle'
   ctx.fillText('h=' + state.h.toFixed(1) + 'm', topX - 8, (groundY + topY) / 2)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'top'
-  ctx.fillText('L=' + state.L.toFixed(1) + 'm', (baseX + topX) / 2, groundY + 8)
+  // L 标注在斜边中点
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText('L=' + state.L.toFixed(1) + 'm', (baseX + topX) / 2 + 6, (groundY + topY) / 2 - 4)
   // θ 角弧
   ctx.strokeStyle = '#6b7683'
   ctx.lineWidth = 1.2
@@ -399,7 +401,7 @@ const drawScene = (ctx, state, utils) => {
   ctx.textBaseline = 'bottom'
   ctx.fillText('θ=' + state.thetaDeg.toFixed(0) + '°', baseX + 22, groundY - 8)
 
-  // 小车（沿斜面位移 s）
+  // 小车（沿斜面位移 s）：translate 原点 = 车底中点（贴斜面），车体整体画在斜面之上
   const carW = 54
   const carH = 26
   const wheelR = 6
@@ -408,20 +410,20 @@ const drawScene = (ctx, state, utils) => {
   ctx.save()
   ctx.translate(cx, cy)
   ctx.rotate(-state.theta)
-  // 车体
+  // 车体：局部 y ∈ [-carH, 0]，底边贴原点
   ctx.fillStyle = OBJ_FILL
-  ctx.fillRect(-carW / 2, -carH / 2, carW, carH)
+  ctx.fillRect(-carW / 2, -carH, carW, carH)
   ctx.strokeStyle = OBJ_EDGE
   ctx.lineWidth = 1.5
-  ctx.strokeRect(-carW / 2, -carH / 2, carW, carH)
-  // 轮子
+  ctx.strokeRect(-carW / 2, -carH, carW, carH)
+  // 轮子：底部贴原点
   ctx.fillStyle = '#fff'
   ctx.beginPath()
-  ctx.arc(-carW / 4, carH / 2, wheelR, 0, Math.PI * 2)
+  ctx.arc(-carW / 4, -wheelR, wheelR, 0, Math.PI * 2)
   ctx.fill()
   ctx.stroke()
   ctx.beginPath()
-  ctx.arc(carW / 4, carH / 2, wheelR, 0, Math.PI * 2)
+  ctx.arc(carW / 4, -wheelR, wheelR, 0, Math.PI * 2)
   ctx.fill()
   ctx.stroke()
   ctx.restore()
@@ -429,8 +431,9 @@ const drawScene = (ctx, state, utils) => {
   // 力箭头长度比例：重力箭头固定 56px，其余按比例
   const k = 56 / state.G
   const minLen = 12
-  const carCenterX = cx
-  const carCenterY = cy - 0
+  // 车体中心（局部 (0, -carH/2) → 世界坐标）
+  const carCenterX = cx - (carH / 2) * state.sinT
+  const carCenterY = cy - (carH / 2) * state.cosT
 
   // 重力 G：竖直向下（绿）
   drawArrow(ctx, carCenterX, carCenterY, carCenterX, carCenterY + Math.max(minLen, k * state.G), COLOR_G, 2.4)
@@ -478,9 +481,9 @@ const drawScene = (ctx, state, utils) => {
     ctx.fillText('G⊥=' + state.N.toFixed(1) + 'N', carCenterX + glen * state.sinT * 0.4 + 4, carCenterY + glen * state.cosT * 0.4 + 2)
   }
 
-  // 摩擦力 f：从车底接触点沿斜面向下（红）
-  const contactX = cx - (carH / 2) * state.sinT
-  const contactY = cy + (carH / 2) * state.cosT
+  // 摩擦力 f：从车底接触点（= translate 原点，贴斜面）沿斜面向下（红）
+  const contactX = cx
+  const contactY = cy
   const flen = Math.max(minLen, k * state.f)
   drawArrow(ctx, contactX, contactY, contactX + flen * state.cosT, contactY + flen * state.sinT, COLOR_FR, 2)
   ctx.fillStyle = COLOR_FR
@@ -489,9 +492,9 @@ const drawScene = (ctx, state, utils) => {
   ctx.textBaseline = 'top'
   ctx.fillText('f=' + state.f.toFixed(1) + 'N', contactX + flen * state.cosT * 0.3 + 4, contactY + flen * state.sinT * 0.3)
 
-  // 拉力 F：从车前端沿斜面向上（橙）
-  const frontX = cx + (carW / 2) * state.cosT
-  const frontY = cy - (carW / 2) * state.sinT
+  // 拉力 F：从车前端中点（局部 (carW/2, -carH/2)）沿斜面向上（橙）
+  const frontX = cx + (carW / 2) * state.cosT - (carH / 2) * state.sinT
+  const frontY = cy - (carW / 2) * state.sinT - (carH / 2) * state.cosT
   const flen2 = Math.max(minLen, k * state.F)
   drawArrow(ctx, frontX, frontY, frontX + flen2 * state.cosT, frontY - flen2 * state.sinT, COLOR_F, 2.4)
   ctx.fillStyle = COLOR_F
