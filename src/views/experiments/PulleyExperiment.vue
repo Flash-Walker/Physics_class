@@ -318,6 +318,20 @@ const GEOM = {
   pxPerCm: 6
 }
 
+// 线稿配色（白底黑线，教科书插图风格，参照 R.jpg）
+const INK = '#1a1a1a'
+const INK_SOFT = 'rgba(26, 26, 26, 0.55)'
+
+// 文字标签：横梁上方为结构名，图下方为情况名（对应参考图两组标签）
+const PRESET_LABEL = {
+  fix1: { top: '定滑轮', bottom: '一定' },
+  mov1: { top: '动滑轮', bottom: '一动' },
+  '1f1m2': { top: '一定一动', bottom: '一定一动' },
+  '1f1m3': { top: '一定一动', bottom: '一定一动' },
+  '2f2m4': { top: '二定二动', bottom: '二定二动' },
+  '2f2m5': { top: '二定二动', bottom: '二定二动' }
+}
+
 const drawScene = (ctx, state, utils) => {
   const w = utils.canvasWidth
   const h = utils.canvasHeight
@@ -337,9 +351,24 @@ const drawScene = (ctx, state, utils) => {
   // 绳子路径（一根整体：固定端 → 依次绕过各滑轮 → 自由端，无中间折点）
   const path = buildPath(preset.id, cx, movY, loadTop, pullY)
 
-  // ===== 天花板横梁 =====
-  ctx.fillStyle = '#2c3e50'
-  ctx.fillRect(0, GEOM.beamY - 8, w, 8)
+  // ===== 白底（纸面） =====
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, w, h)
+
+  // ===== 顶部标签（结构名，横梁上方） =====
+  ctx.fillStyle = INK
+  ctx.font = '600 16px "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(PRESET_LABEL[preset.id].top, cx, GEOM.beamY - 7)
+
+  // ===== 天花板横梁（细墨线） =====
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(0, GEOM.beamY)
+  ctx.lineTo(w, GEOM.beamY)
+  ctx.stroke()
 
   // ===== 刻度尺（左侧，0-20cm） =====
   drawRuler(ctx, state.h, loadX)
@@ -350,27 +379,27 @@ const drawScene = (ctx, state, utils) => {
   // ===== 固定端钩子（绳子一端系在滑轮组轴上） =====
   drawAnchorHook(ctx, path[0], preset.id, cx, movY)
 
-  // ===== 滑轮（8字形同轴叠放 / 单轮） =====
+  // ===== 滑轮（定滑轮=圆轮线框；动滑轮=六边形线框） =====
   if (preset.id === 'fix1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
-    drawPulley(ctx, cx, GEOM.fixY, 20, true)
+    drawPulley(ctx, cx, GEOM.fixY, 20, 'fixed')
   }
   if (isDouble) {
-    drawPulley(ctx, cx, GEOM.fixY - 20, 20, true) // 定滑轮上轮（挂梁）
-    drawPulley(ctx, cx, GEOM.fixY + 20, 20, false) // 定滑轮下轮
+    drawPulley(ctx, cx, GEOM.fixY - 20, 20, 'fixed') // 定滑轮上轮（挂梁）
+    drawPulley(ctx, cx, GEOM.fixY + 20, 20, 'fixed', false) // 定滑轮下轮（无支撑线）
   }
   if (preset.id === 'mov1' || preset.id === '1f1m2' || preset.id === '1f1m3') {
-    drawPulley(ctx, cx, movY, 16, false)
+    drawPulley(ctx, cx, movY, 16, 'moving')
   }
   if (isDouble) {
-    drawPulley(ctx, cx, movY - 16, 16, false) // 动滑轮上轮
-    drawPulley(ctx, cx, movY + 16, 16, false) // 动滑轮下轮
+    drawPulley(ctx, cx, movY - 16, 16, 'movingFlat') // 动滑轮上轮（平底）
+    drawPulley(ctx, cx, movY + 16, 16, 'movingFlat') // 动滑轮下轮（平底）
   }
 
-  // ===== 吊架 + 重物 =====
+  // ===== 吊架（动滑轮轴 → 重物，画在轮前） =====
   if (preset.id !== 'fix1') {
-    const hangerTop = isDouble ? movY + 32 : movY + 16
-    ctx.strokeStyle = '#555'
-    ctx.lineWidth = 3
+    const hangerTop = isDouble ? movY + 16 : movY // 轴心出发，穿过六边形轮底
+    ctx.strokeStyle = INK
+    ctx.lineWidth = 2
     ctx.beginPath()
     ctx.moveTo(cx, hangerTop)
     ctx.lineTo(cx, loadTop)
@@ -378,15 +407,22 @@ const drawScene = (ctx, state, utils) => {
   }
   drawLoad(ctx, loadX, loadTop, state.G)
 
-  // ===== 拉力箭头 + 标签 =====
+  // ===== 手拉符号 + F 标签 =====
   const last = path[path.length - 1]
   const dir = preset.pull === 'up' ? -1 : 1
-  drawPullArrow(ctx, last.x, pullY, dir)
-  ctx.fillStyle = '#f5a623'
-  ctx.font = 'bold 12px sans-serif'
+  drawHand(ctx, last.x, pullY, dir)
+  ctx.fillStyle = INK
+  ctx.font = '600 13px sans-serif'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
   ctx.fillText(`F=${state.F.toFixed(2)}N ${preset.pull === 'up' ? '↑' : '↓'}`, last.x + 12, pullY)
+
+  // ===== 底部标签（情况名） =====
+  ctx.fillStyle = INK
+  ctx.font = '600 16px "Microsoft YaHei", "PingFang SC", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'bottom'
+  ctx.fillText(PRESET_LABEL[preset.id].bottom, cx, h - 14)
 }
 
 // ========== 绳子路径设计 ==========
@@ -454,8 +490,8 @@ const buildPath = (id, cx, movY, loadTop, pullY) => {
 // 绳子绘制：直线段截断于轮缘外切点，滑轮处画贴缘圆弧（半径 r+2 露出 2px 相切效果）
 // 入出角差 < 20°（回头）→ 绕轮一整圈；否则按 ccw 方向走自然短弧
 const drawRope = (ctx, path) => {
-  ctx.strokeStyle = '#6b7280'
-  ctx.lineWidth = 2.5
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 2
   ctx.lineJoin = 'round'
   ctx.beginPath()
   let pen = null
@@ -490,8 +526,9 @@ const drawRope = (ctx, path) => {
 
 // 固定端钩子：绳子一端系在滑轮组轴上（或横梁钩）
 const drawAnchorHook = (ctx, anchor, presetId, cx, movY) => {
-  ctx.strokeStyle = '#2c3e50'
-  ctx.lineWidth = 3
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 2
+  ctx.lineCap = 'round'
   ctx.beginPath()
   if (presetId === 'mov1') {
     // 横梁钩：从横梁垂下的小钩
@@ -509,72 +546,109 @@ const drawAnchorHook = (ctx, anchor, presetId, cx, movY) => {
     ctx.lineTo(rimX, axleY)
   }
   ctx.stroke()
-  // 钩尖小圆
-  ctx.fillStyle = '#2c3e50'
+  // 钩尖小圆（线框）
   ctx.beginPath()
-  ctx.arc(anchor.x, anchor.y, 3.5, 0, Math.PI * 2)
-  ctx.fill()
+  ctx.arc(anchor.x, anchor.y, 3, 0, Math.PI * 2)
+  ctx.stroke()
 }
 
-const drawPulley = (ctx, x, y, r, hang) => {
-  if (hang) {
-    // 定滑轮挂梁线
-    ctx.strokeStyle = '#2c3e50'
-    ctx.lineWidth = 3
+// 滑轮线框（参照 R.jpg 风格）：定滑轮=圆轮+挂梁支撑线+轴毂；
+// 动滑轮=六边形（平顶圆角+梯形变宽+V 形收口；双轮叠放时用平底避免交叉）
+const drawPulley = (ctx, x, y, r, kind, withSupport = true) => {
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  if (kind === 'fixed') {
+    if (withSupport) {
+      // 支撑线：横梁 → 轮心
+      ctx.beginPath()
+      ctx.moveTo(x, GEOM.beamY)
+      ctx.lineTo(x, y)
+      ctx.stroke()
+    }
+    // 轮圈（细圆环，不填充）
     ctx.beginPath()
-    ctx.moveTo(x, GEOM.beamY)
-    ctx.lineTo(x, y - r)
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.stroke()
+  } else {
+    // 六边形动滑轮：平顶 + 梯形（向下变宽）+ V 收口 / 平底
+    const halfTop = r * 0.42 // 顶边半宽
+    const topY = y - r * 1.16 // 顶边 y
+    const halfW = r * 1.1 // 最宽处半宽（轴心水平线）
+    const yBot = kind === 'moving' ? y + r * 1.28 : y + r * 0.84 // 底部收口 / 平底
+    ctx.beginPath()
+    ctx.moveTo(x - halfTop, topY)
+    ctx.lineTo(x + halfTop, topY)
+    ctx.lineTo(x + halfW, y)
+    if (kind === 'moving') {
+      ctx.lineTo(x, yBot)
+      ctx.lineTo(x - halfW, y)
+    } else {
+      ctx.lineTo(x + halfW, yBot)
+      ctx.lineTo(x - halfW, yBot)
+    }
+    ctx.closePath()
     ctx.stroke()
   }
-  ctx.fillStyle = '#2c3e50'
+  // 轴毂（两种轮共用，参考图中心小毂）
   ctx.beginPath()
-  ctx.arc(x, y, r, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#e8e8e8'
-  ctx.beginPath()
-  ctx.arc(x, y, r - 5, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = '#2c3e50'
-  ctx.beginPath()
-  ctx.arc(x, y, 2.5, 0, Math.PI * 2)
-  ctx.fill()
+  ctx.arc(x, y, 3, 0, Math.PI * 2)
+  ctx.stroke()
 }
 
+// 重物：吊环 + 顶边虚线 + 线框箱体 + G 标签（参照 R.jpg：白底黑线、顶边虚线）
 const drawLoad = (ctx, x, topY, G) => {
   const w = 76
   const hgt = 46
-  // 吊环
-  ctx.strokeStyle = '#555'
-  ctx.lineWidth = 3
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 2
+  ctx.lineCap = 'round'
+  // 吊环（绳端到箱顶）
   ctx.beginPath()
-  ctx.moveTo(x, topY)
-  ctx.lineTo(x, topY - 8)
+  ctx.moveTo(x, topY - 8)
+  ctx.lineTo(x, topY)
   ctx.stroke()
-  // 重物箱体
-  ctx.fillStyle = '#f5222d'
+  // 顶边虚线（虚线在上、实线箱体在下）
+  ctx.setLineDash([5, 4])
   ctx.beginPath()
-  ctx.roundRect(x - w / 2, topY, w, hgt, 4)
-  ctx.fill()
-  ctx.fillStyle = '#fff'
-  ctx.font = 'bold 14px sans-serif'
+  ctx.moveTo(x - w / 2, topY - 3)
+  ctx.lineTo(x + w / 2, topY - 3)
+  ctx.stroke()
+  ctx.setLineDash([])
+  // 箱体
+  ctx.strokeRect(x - w / 2, topY, w, hgt)
+  // G 标签
+  ctx.fillStyle = INK
+  ctx.font = '600 14px sans-serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(`G=${G}N`, x, topY + hgt / 2)
 }
 
-const drawPullArrow = (ctx, x, y, dir) => {
-  const len = 16
-  ctx.strokeStyle = '#f5a623'
-  ctx.lineWidth = 3
+// 手拉符号：绳端锯齿形（参照 R.jpg 的手拉记号）+ 方向箭头
+const drawHand = (ctx, x, y, dir) => {
+  const seg = 7
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 2
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
   ctx.beginPath()
   ctx.moveTo(x, y)
-  ctx.lineTo(x, y + dir * len)
+  let sx = x
+  let sy = y
+  for (let i = 1; i <= 4; i++) {
+    sx = x + (i % 2 === 1 ? 5 : -5)
+    sy = y + dir * seg * i
+    ctx.lineTo(sx, sy)
+  }
   ctx.stroke()
-  ctx.fillStyle = '#f5a623'
+  // 箭头（指示拉力方向）
+  ctx.fillStyle = INK
   ctx.beginPath()
-  ctx.moveTo(x, y + dir * len)
-  ctx.lineTo(x - 6, y + dir * (len - 11))
-  ctx.lineTo(x + 6, y + dir * (len - 11))
+  ctx.moveTo(sx, sy)
+  ctx.lineTo(sx - 6, sy - dir * 10)
+  ctx.lineTo(sx + 6, sy - dir * 10)
   ctx.closePath()
   ctx.fill()
 }
@@ -601,16 +675,16 @@ const drawRuler = (ctx, hCm, loadX) => {
     ctx.stroke()
     ctx.fillText(String(c), x0 - 9, y)
   }
-  // 当前高度指示线
+  // 当前高度指示线（墨线）
   const hy = yBot - hCm * GEOM.pxPerCm
-  ctx.strokeStyle = '#f5222d'
-  ctx.lineWidth = 2
+  ctx.strokeStyle = INK
+  ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.moveTo(x0, hy)
   ctx.lineTo(loadX - 34, hy)
   ctx.stroke()
-  ctx.fillStyle = '#f5222d'
-  ctx.font = '11px sans-serif'
+  ctx.fillStyle = INK
+  ctx.font = '600 11px sans-serif'
   ctx.textAlign = 'left'
   ctx.fillText(`h=${hCm.toFixed(1)}cm`, x0 + 6, hy - 6)
 }
