@@ -809,13 +809,20 @@ onUnmounted(() => {
   }
 
   .formula-box {
-    background: rgba(255, 255, 255, 0.06);
-    border-radius: 8px;
+    background: rgba(245, 166, 35, 0.08);
+    border: 1px solid rgba(245, 166, 35, 0.35);
+    border-radius: 6px;
     padding: 10px 12px;
-    font-size: 12px;
-    line-height: 1.9;
-    color: $color-text-primary;
-    font-family: 'Consolas', 'Courier New', monospace;
+    text-align: center;
+  }
+
+  .formula-line {
+    font-size: 15px;
+    font-weight: 600;
+    color: $color-accent;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    letter-spacing: 0.5px;
+    line-height: 1.7;
   }
 
   .card-list {
