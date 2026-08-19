@@ -25,7 +25,8 @@ const experimentComponents = {
   'mechanics/force-composition': defineAsyncComponent(() => import('./experiments/ForceCompositionExperiment.vue')),
   'mechanics/lever': defineAsyncComponent(() => import('./experiments/LeverExperiment.vue')),
   'mechanics/pulley': defineAsyncComponent(() => import('./experiments/PulleyExperiment.vue')),
-  'mechanics/buoyancy': defineAsyncComponent(() => import('./experiments/BuoyancyExperiment.vue'))
+  'mechanics/buoyancy': defineAsyncComponent(() => import('./experiments/BuoyancyExperiment.vue')),
+  'mechanics/efficiency': defineAsyncComponent(() => import('./experiments/EfficiencyExperiment.vue'))
 }
 
 // 当前实验组件
@@ -42,7 +43,8 @@ const experimentName = computed(() => {
     'force-composition': '力的合成与分解',
     lever: '杠杆平衡',
     pulley: '滑轮组',
-    buoyancy: '浮力与阿基米德原理'
+    buoyancy: '浮力与阿基米德原理',
+    efficiency: '简单机械效率'
   }
   return nameMap[route.params.expId] || '物理实验'
 })
