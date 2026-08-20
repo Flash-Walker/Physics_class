@@ -374,7 +374,7 @@ const drawAngleArc = (ctx, O, fromDir, toDir, radius, color, label, labelR) => {
   ctx.restore()
 }
 
-// 光线路径按进度裁剪绘制 + 段末方向箭头
+// 光线路径按进度裁剪绘制，方向箭头画在每段中点
 const drawRayPath = (ctx, segments, progress, color, width) => {
   let total = 0
   segments.forEach(s => { total += dist(s.from, s.to) })
@@ -396,8 +396,11 @@ const drawRayPath = (ctx, segments, progress, color, width) => {
     ctx.moveTo(s.from.x, s.from.y)
     ctx.lineTo(ex, ey)
     ctx.stroke()
-    if (t >= 1) {
-      drawRayArrow(ctx, ex, ey, s.to.x - s.from.x, s.to.y - s.from.y)
+    // 箭头在段中点：光线覆盖到中点后显示（方向仍指向段末）
+    if (remain >= len * 0.5) {
+      const mx = s.from.x + (s.to.x - s.from.x) * 0.5
+      const my = s.from.y + (s.to.y - s.from.y) * 0.5
+      drawRayArrow(ctx, mx, my, s.to.x - s.from.x, s.to.y - s.from.y)
     }
     remain -= len
   }
