@@ -234,7 +234,7 @@ const handleCanvasResize = ({ width, height }) => {
   canvasH.value = height
 }
 
-const lensX = computed(() => canvasW.value * 0.62) // 透镜位置（画布右侧约 62%）
+const lensX = computed(() => canvasW.value * 0.5) // 透镜位置（画布正中）
 const axisY = computed(() => canvasH.value * 0.5)  // 主光轴
 
 const uMin = 0.5
