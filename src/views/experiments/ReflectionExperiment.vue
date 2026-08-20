@@ -12,6 +12,15 @@
         <div class="refl-control">
           <p class="control-tip">🪞 调整入射角或转动平面镜<br />观察反射角始终等于入射角（反射定律）</p>
 
+          <!-- 入射方向 -->
+          <div class="control-group">
+            <div class="group-label">入射方向（反射光线在法线另一侧）</div>
+            <div class="btn-row">
+              <button class="style-btn" :class="{ active: incidentSide === 'left' }" @click="incidentSide = 'left'">◀ 从左侧入射</button>
+              <button class="style-btn" :class="{ active: incidentSide === 'right' }" @click="incidentSide = 'right'">从右侧入射 ▶</button>
+            </div>
+          </div>
+
           <!-- 入射角滑块 -->
           <div class="control-group">
             <div class="group-label">入射角 i（入射光线与法线的夹角）</div>
@@ -140,7 +149,8 @@ const config = reflectionConfig
 
 // ========== 交互状态 ==========
 const incidentAngle = ref(40)   // 入射角 i（0~85°）
-const mirrorAngle = ref(90)     // 镜面与水平方向夹角（0~90°，默认竖直）
+const mirrorAngle = ref(90)     // 镜面与水平方向夹角（0~360°，默认竖直）
+const incidentSide = ref('left') // 入射方向：left（法线左侧入射）| right（法线右侧入射）
 const showNormal = ref(true)    // 显示法线
 const showAngles = ref(true)    // 显示角度标注
 const runState = ref('idle')    // 引擎运行状态
@@ -160,8 +170,8 @@ engine.onUpdate = (state) => {
 }
 engine.reset()
 
-// 入射角/镜面角度变化 → 光线进度清零重播（运行中则继续播放）
-watch([incidentAngle, mirrorAngle], () => {
+// 入射角/镜面角度/入射方向变化 → 光线进度清零重播（运行中则继续播放）
+watch([incidentAngle, mirrorAngle, incidentSide], () => {
   const wasRunning = engine.state === 'running'
   engine.reset()
   if (wasRunning) engine.start()
@@ -186,19 +196,22 @@ const O = computed(() => ({ x: canvasW.value / 2, y: canvasH.value / 2 }))
 const rayLen = computed(() => Math.min(250, canvasH.value / 2 - 40, canvasW.value / 2 - 40))
 
 // ========== 反射几何 ==========
-// 法线方向：候选 (-sinθ, cosθ) 与 (sinθ, -cosθ)，始终选"指向左侧"（入射侧）的；
-// 水平镜面时选朝上的。这样镜面 360° 转动时光源始终稳定在左侧。
+// 法线方向：候选 (-sinθ, cosθ) 与 (sinθ, -cosθ)，始终选"指向入射侧"的；
+// 水平镜面时选朝上的。入射侧在左 → 法线指向左，入射侧在右 → 法线指向右。
 const normalDir = computed(() => {
   const rad = degToRad(mirrorAngle.value)
   const s = Math.sin(rad)
   const c = Math.cos(rad)
   const n1 = { x: -s, y: c }
   const n2 = { x: s, y: -c }
-  if (Math.abs(s) < 1e-9) {
+  const refX = incidentSide.value === 'left' ? -1 : 1 // 入射侧参考方向
+  const dot1 = n1.x * refX
+  const dot2 = n2.x * refX
+  if (Math.abs(dot1 - dot2) < 1e-9) {
     // 水平镜面（θ=0 或 180）：选朝上的法线
     return n1.y <= n2.y ? n1 : n2
   }
-  return s > 0 ? n1 : n2
+  return dot1 > dot2 ? n1 : n2
 })
 
 // 向量旋转（数学正方向）：rot(v, α)
@@ -209,10 +222,12 @@ const rot = (v, deg) => {
   return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos }
 }
 
-// O→光源方向（与法线夹角 = 入射角 i）
-const inDir = computed(() => rot(normalDir.value, incidentAngle.value))
+// O→光源方向（与法线夹角 = 入射角 i，在入射侧）
+// 左侧入射：法线逆时针偏 i；右侧入射：法线顺时针偏 i（镜像对称）
+const sideSign = computed(() => (incidentSide.value === 'left' ? 1 : -1))
+const inDir = computed(() => rot(normalDir.value, sideSign.value * incidentAngle.value))
 // 反射方向（与法线夹角 = 反射角 r，在法线另一侧）
-const refDir = computed(() => rot(normalDir.value, -incidentAngle.value))
+const refDir = computed(() => rot(normalDir.value, -sideSign.value * incidentAngle.value))
 
 // 光源位置 / 反射光线端点
 const source = computed(() => ({ x: O.value.x + inDir.value.x * rayLen.value, y: O.value.y + inDir.value.y * rayLen.value }))
