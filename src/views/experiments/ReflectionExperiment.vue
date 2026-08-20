@@ -39,7 +39,7 @@
             </label>
           </div>
 
-          <p class="control-hint">💡 点「开始」播放光线传播动画：入射光线射到镜面，反射光线弹开</p>
+          <p class="control-hint">💡 点「开始」播放完整动画：入射光线射到镜面 → 反射光线弹开 → 入射角/反射角标注渐进出现</p>
         </div>
       </template>
 
@@ -151,6 +151,9 @@ const rayProgress = ref([])     // 引擎光线进度快照
 // 引擎仅作为动画时钟（progress 0→1 推进）。
 const engine = new OpticsEngine()
 engine.addRay({ id: 'ray-beam', origin: { x: 0, y: 0 }, angleDeg: 0, speed: 0.5, delay: 0 })
+// 标注动画时钟：光线画完后（delay 2s = 光线总时长），角度标注渐进出现（弧线生长 + 文字淡入）
+engine.addRay({ id: 'ray-annot-in', origin: { x: 0, y: 0 }, angleDeg: 0, speed: 0.6, delay: 2.0 })
+engine.addRay({ id: 'ray-annot-ref', origin: { x: 0, y: 0 }, angleDeg: 0, speed: 0.6, delay: 2.4 })
 engine.onUpdate = (state) => {
   rayProgress.value = state.rays
   runState.value = state.state
@@ -224,6 +227,16 @@ const mirrorB = computed(() => ({ x: O.value.x + mirrorDir.value.x * MIRROR_HALF
 // 反射角（复用 utils：反射角 = 入射角）
 const reflectAngle = computed(() => reflectionAngle(incidentAngle.value))
 
+// 标注渐进进度（0→1）：由标注时钟光线的 progress 驱动
+const annotIn = computed(() => {
+  const r = rayProgress.value.find(x => x.id === 'ray-annot-in')
+  return r ? r.progress : 0
+})
+const annotRef = computed(() => {
+  const r = rayProgress.value.find(x => x.id === 'ray-annot-ref')
+  return r ? r.progress : 0
+})
+
 // ========== 光线路径（光源 → O → 反射端） ==========
 const rayPaths = computed(() => [{
   id: 'ray-beam',
@@ -251,7 +264,9 @@ const canvasState = computed(() => ({
   mirrorB: mirrorB.value,
   rays: rayProgress.value,
   engineState: engine.state,
-  rayPaths: rayPaths.value
+  rayPaths: rayPaths.value,
+  annotIn: annotIn.value,
+  annotRef: annotRef.value
 }))
 
 // ========== 绘制函数 ==========
@@ -294,10 +309,13 @@ const drawScene = (ctx, state, utils) => {
   // 反射段：蓝，入射段完成后立即从 O 向外射出（接力，不同时生长）
   drawRayPath(ctx, [{ from: O, to: state.reflectEnd }], Math.max(0, Math.min(1, (remain - lenIn) / lenOut)), '#1890ff', 2.4)
 
-  // ④ 角度标注（入射角 / 反射角弧线 + 数值）
+  // ④ 角度标注（入射角 / 反射角弧线 + 数值）：光线画完后渐进出现
   if (state.showAngles) {
-    drawAngleArc(ctx, O, state.inDir, normalDir, 34, '#e74c3c', `i = ${state.incidentAngle}°`, 52)
-    drawAngleArc(ctx, O, normalDir, state.refDir, 26, '#1890ff', `r = ${state.reflectAngle}°`, 44)
+    // idle 时直接完整显示；播放时由标注时钟光线驱动渐进（入射角先、反射角后）
+    const pIn = state.engineState === 'idle' ? 1 : state.annotIn
+    const pRef = state.engineState === 'idle' ? 1 : state.annotRef
+    drawAngleArc(ctx, O, state.inDir, normalDir, 34, '#e74c3c', `i = ${state.incidentAngle}°`, 52, pIn)
+    drawAngleArc(ctx, O, normalDir, state.refDir, 26, '#1890ff', `r = ${state.reflectAngle}°`, 44, pRef)
   }
 
   // ⑤ 入射点 O 标记
@@ -350,25 +368,29 @@ const drawMirror = (ctx, state) => {
   ctx.restore()
 }
 
-// 角度弧线标注：从 aFrom 方向到 aTo 方向画弧，标 label
-const drawAngleArc = (ctx, O, fromDir, toDir, radius, color, label, labelR) => {
+// 角度弧线标注：从 aFrom 方向到 aTo 方向画弧（弧线随 progress 渐进生长，文字淡入），标 label
+const drawAngleArc = (ctx, O, fromDir, toDir, radius, color, label, labelR, progress = 1) => {
   const a0 = Math.atan2(fromDir.y, fromDir.x)
   const a1 = Math.atan2(toDir.y, toDir.x)
   // 归一化差值到 [-180°, 180°]
   let delta = ((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI
   if (Math.abs(delta) < 0.02) return // 夹角为 0（垂直入射），不画弧
+  const p = Math.max(0, Math.min(1, progress))
+  if (p <= 0) return
   ctx.save()
+  // 弧线：随 progress 从 0 生长到完整弧长
   ctx.strokeStyle = color
   ctx.lineWidth = 1.8
   ctx.beginPath()
-  ctx.arc(O.x, O.y, radius, a0, a0 + delta, delta < 0)
+  ctx.arc(O.x, O.y, radius, a0, a0 + delta * p, delta < 0)
   ctx.stroke()
-  // 标签放在弧中点外侧
+  // 标签：淡入（progress 过半后快速显现），位置在弧中点外侧
   const mid = a0 + delta / 2
   ctx.fillStyle = color
   ctx.font = 'bold 13px "Microsoft YaHei"'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
+  ctx.globalAlpha = Math.min(1, (p - 0.35) / 0.65) // 弧线画到约 1/3 后文字开始淡入
   ctx.fillText(label, O.x + Math.cos(mid) * labelR, O.y + Math.sin(mid) * labelR)
   ctx.restore()
 }
