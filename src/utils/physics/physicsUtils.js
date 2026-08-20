@@ -1,5 +1,5 @@
 // ==========================================
-// 力学公式工具集（初中全覆盖 + 高中进阶铺垫）
+// 物理公式工具集（力学 + 光学全覆盖）
 // 标注说明：【初中必学】课标要求掌握  【高中铺垫】进阶拓展内容
 // 所有函数均为纯函数，无副作用
 // ==========================================
@@ -36,6 +36,17 @@ export function degToRad(deg) {
  */
 export function radToDeg(rad) {
   return rad * 180 / Math.PI
+}
+
+/**
+ * 角度归一化到 (-180, 180] 区间
+ * 【光学】光线方向角运算基础
+ */
+export function normalizeAngle(deg) {
+  let a = deg % 360
+  if (a > 180) a -= 360
+  if (a <= -180) a += 360
+  return a
 }
 
 // ---------- 二维矢量运算（高中铺垫） ----------
@@ -553,4 +564,222 @@ export function inclineEfficiency(gravity, height, force, length) {
   const useful = gravity * height
   const total = force * length
   return efficiency(useful, total)
+}
+
+// ==========================================
+// 模块9：几何光学
+// 【初中】光的直线传播/反射/折射/透镜成像  【高中铺垫】斯涅尔定律定量、全反射
+// 约定：角度均指光线方向角（x轴正方向为0°，逆时针为正）；
+//       入射角/折射角/反射角指与界面法线的夹角（锐角）
+// ==========================================
+
+// ---------- 光的直线传播与小孔成像 ----------
+
+/**
+ * 小孔成像：像高 = 物高 × 像距 / 物距（相似三角形）
+ * 【初中核心】光沿直线传播
+ * @param {number} objectHeight 物体高度
+ * @param {number} objectDistance 物距（物体到小孔）
+ * @param {number} imageDistance 像距（光屏到小孔）
+ */
+export function pinholeImageHeight(objectHeight, objectDistance, imageDistance) {
+  if (objectDistance <= 0) return 0
+  return (objectHeight * imageDistance) / objectDistance
+}
+
+// ---------- 光的反射与平面镜 ----------
+
+/**
+ * 反射定律：反射角 = 入射角
+ * 【初中核心】
+ */
+export function reflectionAngle(incidentAngleDeg) {
+  return incidentAngleDeg
+}
+
+/**
+ * 平面镜成像：像点 = 物点关于镜面的对称点
+ * 镜面由一点 (mirrorPointX, mirrorPointY) 与方向角 mirrorAngleDeg 确定
+ * 【初中核心】像与物等大、到镜面距离相等、连线与镜面垂直
+ * @returns {{x:number, y:number}} 像点坐标
+ */
+export function mirrorImagePoint(px, py, mirrorPointX, mirrorPointY, mirrorAngleDeg) {
+  const rad = degToRad(mirrorAngleDeg)
+  const ux = Math.cos(rad)
+  const uy = Math.sin(rad)
+  // 物点到镜面参考点的向量沿镜面方向的投影（垂足位置）
+  const proj = (px - mirrorPointX) * ux + (py - mirrorPointY) * uy
+  const footX = mirrorPointX + proj * ux
+  const footY = mirrorPointY + proj * uy
+  // 像点 = 2 × 垂足 − 物点
+  return { x: 2 * footX - px, y: 2 * footY - py }
+}
+
+/**
+ * 向量反射：入射向量 v 关于法线 n（单位向量）的反射
+ * r = v − 2(v·n)n
+ * 【初中】反射定律矢量形式  【高中铺垫】
+ */
+export function reflectVector(vx, vy, nx, ny) {
+  const dot = vx * nx + vy * ny
+  return { x: vx - 2 * dot * nx, y: vy - 2 * dot * ny }
+}
+
+// ---------- 光的折射（斯涅尔定律） ----------
+
+/**
+ * 斯涅尔定律：n₁·sinθ₁ = n₂·sinθ₂
+ * 求折射角（θ 为与法线的夹角）
+ * @param {number} n1 入射侧折射率
+ * @param {number} n2 折射侧折射率
+ * @param {number} incidentAngleDeg 入射角（度）
+ * @returns {number|null} 折射角（度）；发生全反射时返回 null
+ * 【初中】折射规律（空气→水/玻璃折射角<入射角）  【高中铺垫】定量计算
+ */
+export function refractionAngle(n1, n2, incidentAngleDeg) {
+  const sinT2 = (n1 / n2) * Math.sin(degToRad(incidentAngleDeg))
+  if (sinT2 > 1) return null // 全反射
+  return radToDeg(Math.asin(sinT2))
+}
+
+/**
+ * 全反射临界角：sinC = n₂ / n₁（光从光密介质 n₁ 射向光疏介质 n₂，且 n₁ > n₂）
+ * @returns {number|null} 临界角（度）；不会发生全反射时返回 null
+ * 【高中铺垫】
+ */
+export function criticalAngleDeg(n1, n2) {
+  if (n1 <= n2) return null
+  return radToDeg(Math.asin(n2 / n1))
+}
+
+/**
+ * 光在介质中的传播速度 v = c / n
+ * 【初中拓展】
+ */
+export function lightSpeedInMedium(refractiveIndex, c = 3e8) {
+  return c / refractiveIndex
+}
+
+/**
+ * 由入射角与折射角求相对折射率 n = sinθ₁ / sinθ₂（θ 为与法线的夹角）
+ * 【高中铺垫】
+ */
+export function refractiveIndexFromAngles(incidentAngleDeg, refractedAngleDeg) {
+  const s = Math.sin(degToRad(incidentAngleDeg)) / Math.sin(degToRad(refractedAngleDeg))
+  return s
+}
+
+// ---------- 凸透镜成像 ----------
+
+/**
+ * 凸透镜成像公式：1/f = 1/u + 1/v  →  v = uf / (u − f)
+ * @param {number} f 焦距（>0）
+ * @param {number} u 物距（>0）
+ * @returns {number} 像距；u = f 时返回 Infinity（不成像）；
+ *                   u < f 时返回负值（虚像，与物同侧）
+ * 【初中核心】
+ */
+export function lensImageDistance(f, u) {
+  if (u <= 0) return 0
+  const diff = u - f
+  if (Math.abs(diff) < 1e-9) return Infinity
+  return (u * f) / diff
+}
+
+/**
+ * 凸透镜放大率 m = |v / u|
+ * 【初中核心】
+ */
+export function lensMagnification(f, u) {
+  const v = lensImageDistance(f, u)
+  if (v === Infinity) return Infinity
+  return Math.abs(v / u)
+}
+
+/**
+ * 凸透镜成像高度（含方向）：h' = −(v/u) × h
+ * 负值表示倒立
+ * 【初中核心】
+ */
+export function lensImageHeight(objectHeight, f, u) {
+  const v = lensImageDistance(f, u)
+  if (v === Infinity) return 0
+  return (-v / u) * objectHeight
+}
+
+/**
+ * 凸透镜成像规律分类（初中五区）
+ * @param {number} f 焦距
+ * @param {number} u 物距
+ * @returns {{type:'real'|'virtual'|'none', orientation:'upright'|'inverted'|'none', size:'reduced'|'same'|'magnified'|'none', application:string}}
+ * 【初中核心】照相机 / 投影仪 / 放大镜 的应用判断
+ */
+export function classifyLensImage(f, u) {
+  if (u > 2 * f) return { type: 'real', orientation: 'inverted', size: 'reduced', application: '照相机' }
+  if (Math.abs(u - 2 * f) < 1e-9) return { type: 'real', orientation: 'inverted', size: 'same', application: '测焦距（u = v = 2f）' }
+  if (u > f) return { type: 'real', orientation: 'inverted', size: 'magnified', application: '投影仪/幻灯机' }
+  if (Math.abs(u - f) < 1e-9) return { type: 'none', orientation: 'none', size: 'none', application: '不成像（出射平行光）' }
+  return { type: 'virtual', orientation: 'upright', size: 'magnified', application: '放大镜' }
+}
+
+/**
+ * 由物距与像距求焦距（测焦距实验）：1/f = 1/u + 1/v
+ * 【初中核心】
+ */
+export function lensFocalFromUV(u, v) {
+  if (u <= 0 || v <= 0) return 0
+  return (u * v) / (u + v)
+}
+
+// ---------- 光线几何（2D 射线求交，光学引擎与画布共用） ----------
+
+/**
+ * 线段求交
+ * @param {{x,y}} p1 线段1端点
+ * @param {{x,y}} p2 线段1端点
+ * @param {{x,y}} p3 线段2端点
+ * @param {{x,y}} p4 线段2端点
+ * @returns {{x:number, y:number}|null} 交点或 null（平行/不相交）
+ */
+export function segmentIntersection(p1, p2, p3, p4) {
+  const d1x = p2.x - p1.x
+  const d1y = p2.y - p1.y
+  const d2x = p4.x - p3.x
+  const d2y = p4.y - p3.y
+  const denom = d1x * d2y - d1y * d2x
+  if (Math.abs(denom) < 1e-9) return null
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom
+  const s = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / denom
+  if (t < 0 || t > 1 || s < 0 || s > 1) return null
+  return { x: p1.x + t * d1x, y: p1.y + t * d1y }
+}
+
+/**
+ * 射线（起点 + 方向角）与线段求交
+ * @param {number} ox 射线起点 x
+ * @param {number} oy 射线起点 y
+ * @param {number} angleDeg 射线方向角（度）
+ * @param {{x,y}} p1 线段端点
+ * @param {{x,y}} p2 线段端点
+ * @returns {{x:number, y:number, distance:number}|null} 交点（含射线参数距离）或 null
+ */
+export function raySegmentIntersection(ox, oy, angleDeg, p1, p2) {
+  const rad = degToRad(angleDeg)
+  const dx = Math.cos(rad)
+  const dy = Math.sin(rad)
+  const sx = p2.x - p1.x
+  const sy = p2.y - p1.y
+  const denom = dx * sy - dy * sx
+  if (Math.abs(denom) < 1e-9) return null // 平行
+  const t = ((p1.x - ox) * sy - (p1.y - oy) * sx) / denom
+  const s = ((p1.x - ox) * dy - (p1.y - oy) * dx) / denom
+  if (t < 0 || s < 0 || s > 1) return null
+  return { x: ox + t * dx, y: oy + t * dy, distance: t }
+}
+
+/**
+ * 两点间距离
+ */
+export function pointDistance(ax, ay, bx, by) {
+  return Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
 }
