@@ -12,14 +12,18 @@
         v-for="exp in currentChapter.experiments"
         :key="exp.id"
         class="experiment-item"
-        @click="goToExperiment(exp.id)"
+        :class="{ dev: exp.status !== 'done' }"
+        @click="goToExperiment(exp)"
       >
         <div class="exp-number">{{ exp.num }}</div>
         <div class="exp-info">
-          <h3 class="exp-name">{{ exp.name }}</h3>
+          <h3 class="exp-name">
+            {{ exp.name }}
+            <span v-if="exp.status !== 'done'" class="dev-badge">开发中</span>
+          </h3>
           <p class="exp-desc">{{ exp.description }}</p>
         </div>
-        <div class="exp-arrow">进入实验 →</div>
+        <div class="exp-arrow">{{ exp.status === 'done' ? '进入实验 →' : '敬请期待' }}</div>
       </div>
     </div>
   </div>
@@ -49,7 +53,17 @@ const chapterData = {
   // 其余章节后续逐步补充
   heat: { title: '热学', experiments: [] },
   acoustics: { title: '声学', experiments: [] },
-  optics: { title: '光学', experiments: [] },
+  optics: {
+    title: '光学',
+    experiments: [
+      { id: 'straight-line', num: '01', name: '光的直线传播与小孔成像', description: '光沿直线传播的经典验证：小孔成像的倒立实像', status: 'dev' },
+      { id: 'reflection', num: '02', name: '光的反射定律', description: '探究反射角与入射角的关系及三线共面规律', status: 'dev' },
+      { id: 'mirror', num: '03', name: '平面镜成像', description: '像与物的对称关系、虚像的本质与作图', status: 'dev' },
+      { id: 'refraction', num: '04', name: '光的折射', description: '光从空气斜射入水中的偏折规律', status: 'dev' },
+      { id: 'convex-lens', num: '05', name: '凸透镜成像规律', description: '五区成像规律与照相机/投影仪/放大镜', status: 'done' },
+      { id: 'dispersion', num: '06', name: '光的色散', description: '三棱镜分解白光：红橙黄绿蓝靛紫', status: 'dev' }
+    ]
+  },
   electricity: { title: '电学', experiments: [] }
 }
 
@@ -64,9 +78,13 @@ const goBack = () => {
   router.push('/')
 }
 
-// 跳转到对应实验页
-const goToExperiment = (expId) => {
-  router.push(`/experiment/${route.params.id}/${expId}`)
+// 跳转到对应实验页（未完成实验拦截提示）
+const goToExperiment = (exp) => {
+  if (exp.status !== 'done') {
+    alert('该实验正在开发中，敬请期待～')
+    return
+  }
+  router.push(`/experiment/${route.params.id}/${exp.id}`)
 }
 </script>
 
@@ -127,6 +145,30 @@ const goToExperiment = (expId) => {
     border-color: $color-tech-blue;
     transform: translateX(4px);
   }
+
+  // 开发中实验：半透明 + 禁止点击
+  &.dev {
+    opacity: 0.6;
+    cursor: not-allowed;
+
+    &:hover {
+      border-color: transparent;
+      transform: none;
+    }
+  }
+}
+
+.dev-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: normal;
+  color: $color-accent;
+  background: rgba(245, 166, 35, 0.12);
+  border: 1px solid rgba(245, 166, 35, 0.4);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  vertical-align: 2px;
 }
 
 .exp-number {

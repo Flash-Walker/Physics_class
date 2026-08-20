@@ -26,7 +26,9 @@ const experimentComponents = {
   'mechanics/lever': defineAsyncComponent(() => import('./experiments/LeverExperiment.vue')),
   'mechanics/pulley': defineAsyncComponent(() => import('./experiments/PulleyExperiment.vue')),
   'mechanics/buoyancy': defineAsyncComponent(() => import('./experiments/BuoyancyExperiment.vue')),
-  'mechanics/efficiency': defineAsyncComponent(() => import('./experiments/EfficiencyExperiment.vue'))
+  'mechanics/efficiency': defineAsyncComponent(() => import('./experiments/EfficiencyExperiment.vue')),
+  // 光学实验
+  'optics/convex-lens': defineAsyncComponent(() => import('./experiments/ConvexLensExperiment.vue'))
 }
 
 // 当前实验组件
@@ -44,7 +46,13 @@ const experimentName = computed(() => {
     lever: '杠杆平衡',
     pulley: '滑轮组',
     buoyancy: '浮力与阿基米德原理',
-    efficiency: '简单机械效率'
+    efficiency: '简单机械效率',
+    'straight-line': '光的直线传播与小孔成像',
+    reflection: '光的反射定律',
+    mirror: '平面镜成像',
+    refraction: '光的折射',
+    'convex-lens': '凸透镜成像规律',
+    dispersion: '光的色散'
   }
   return nameMap[route.params.expId] || '物理实验'
 })
