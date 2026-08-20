@@ -30,6 +30,7 @@ const experimentComponents = {
   // 光学实验
   'optics/straight-line': defineAsyncComponent(() => import('./experiments/StraightLineExperiment.vue')),
   'optics/reflection': defineAsyncComponent(() => import('./experiments/ReflectionExperiment.vue')),
+  'optics/mirror': defineAsyncComponent(() => import('./experiments/MirrorExperiment.vue')),
   'optics/convex-lens': defineAsyncComponent(() => import('./experiments/ConvexLensExperiment.vue'))
 }
 

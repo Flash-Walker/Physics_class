@@ -16,8 +16,8 @@
           <div class="control-group">
             <div class="group-label">入射方向（反射光线在法线另一侧）</div>
             <div class="btn-row">
-              <button class="style-btn" :class="{ active: incidentSide === 'left' }" @click="incidentSide = 'left'">◀ 从左侧入射</button>
-              <button class="style-btn" :class="{ active: incidentSide === 'right' }" @click="incidentSide = 'right'">从右侧入射 ▶</button>
+              <button class="style-btn" :class="{ active: incidentSide === 'left' }" @click="incidentSide = 'left'">◀ 向左侧入射</button>
+              <button class="style-btn" :class="{ active: incidentSide === 'right' }" @click="incidentSide = 'right'">向右侧入射 ▶</button>
             </div>
           </div>
 
