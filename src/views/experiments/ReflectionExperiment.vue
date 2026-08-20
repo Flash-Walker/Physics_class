@@ -284,13 +284,16 @@ const drawScene = (ctx, state, utils) => {
     ctx.restore()
   }
 
-  // ③ 光线（入射红 + 反射蓝，带方向箭头）
+  // ③ 光线（入射红 + 反射蓝，接力式动画：红线先射到镜面，蓝线随即反射）
   const ray = state.rays.find(r => r.id === 'ray-beam')
   const progress = state.engineState === 'idle' ? 1 : (ray ? ray.progress : 1)
-  // 入射段：红，箭头指向 O
-  drawRayPath(ctx, [{ from: state.source, to: O }], progress, '#e74c3c', 2.4)
-  // 反射段：蓝，箭头远离 O
-  drawRayPath(ctx, [{ from: O, to: state.reflectEnd }], progress, '#1890ff', 2.4)
+  const lenIn = dist(state.source, O)
+  const lenOut = dist(O, state.reflectEnd)
+  const remain = (lenIn + lenOut) * Math.max(0, Math.min(1, progress))
+  // 入射段：红，箭头指向 O（progress 0→1 对应入射光线射向镜面）
+  drawRayPath(ctx, [{ from: state.source, to: O }], Math.min(1, remain / lenIn), '#e74c3c', 2.4)
+  // 反射段：蓝，入射段完成后立即从 O 向外射出（接力，不同时生长）
+  drawRayPath(ctx, [{ from: O, to: state.reflectEnd }], Math.max(0, Math.min(1, (remain - lenIn) / lenOut)), '#1890ff', 2.4)
 
   // ④ 角度标注（入射角 / 反射角弧线 + 数值）
   if (state.showAngles) {
