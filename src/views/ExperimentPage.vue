@@ -28,6 +28,7 @@ const experimentComponents = {
   'mechanics/buoyancy': defineAsyncComponent(() => import('./experiments/BuoyancyExperiment.vue')),
   'mechanics/efficiency': defineAsyncComponent(() => import('./experiments/EfficiencyExperiment.vue')),
   // 光学实验
+  'optics/straight-line': defineAsyncComponent(() => import('./experiments/StraightLineExperiment.vue')),
   'optics/convex-lens': defineAsyncComponent(() => import('./experiments/ConvexLensExperiment.vue'))
 }
 
