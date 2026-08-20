@@ -41,13 +41,13 @@ const chapterData = {
   mechanics: {
     title: '力学',
     experiments: [
-      { id: 'meeting', num: '01', name: '相遇&追及问题', description: '直道与环形跑道下的两物体相遇、追及模拟' },
-      { id: 'train-bridge', num: '02', name: '火车过桥问题', description: '列车完全过桥路程分析' },
-      { id: 'force-composition', num: '03', name: '力的合成与分解', description: '平行四边形定则可视化' },
-      { id: 'lever', num: '04', name: '杠杆平衡', description: '杠杆原理与平衡条件实验' },
-      { id: 'pulley', num: '05', name: '滑轮组', description: '定滑轮动滑轮与机械效率' },
-      { id: 'buoyancy', num: '06', name: '浮力与阿基米德原理', description: '浮力大小与排液体积关系' },
-      { id: 'efficiency', num: '07', name: '简单机械效率', description: '有用功、额外功与机械效率' }
+      { id: 'meeting', num: '01', name: '相遇&追及问题', description: '直道与环形跑道下的两物体相遇、追及模拟' , status: 'done'},
+      { id: 'train-bridge', num: '02', name: '火车过桥问题', description: '列车完全过桥路程分析' , status: 'done'},
+      { id: 'force-composition', num: '03', name: '力的合成与分解', description: '平行四边形定则可视化' , status: 'done'},
+      { id: 'lever', num: '04', name: '杠杆平衡', description: '杠杆原理与平衡条件实验' , status: 'done'},
+      { id: 'pulley', num: '05', name: '滑轮组', description: '定滑轮动滑轮与机械效率' , status: 'done'},
+      { id: 'buoyancy', num: '06', name: '浮力与阿基米德原理', description: '浮力大小与排液体积关系' , status: 'done'},
+      { id: 'efficiency', num: '07', name: '简单机械效率', description: '有用功、额外功与机械效率' , status: 'done'}
     ]
   },
   // 其余章节后续逐步补充
