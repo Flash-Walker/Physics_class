@@ -21,9 +21,9 @@
 
           <!-- 镜面角度滑块 -->
           <div class="control-group">
-            <div class="group-label">平面镜角度（镜面与水平方向的夹角）</div>
-            <input type="range" class="u-slider" min="0" max="90" step="1" v-model.number="mirrorAngle" />
-            <div class="u-value">镜面角度 = <b>{{ mirrorAngle }}</b>° <span class="mirror-tip">{{ mirrorAngle === 90 ? '竖直（经典实验姿态）' : mirrorAngle === 0 ? '水平' : '倾斜' }}</span></div>
+            <div class="group-label">平面镜角度（镜面与水平方向的夹角，可 360° 转动）</div>
+            <input type="range" class="u-slider" min="0" max="360" step="1" v-model.number="mirrorAngle" />
+            <div class="u-value">镜面角度 = <b>{{ mirrorAngle }}</b>° <span class="mirror-tip">{{ mirrorAngle % 180 === 90 ? '竖直' : mirrorAngle % 180 === 0 ? '水平' : '倾斜' }}</span></div>
           </div>
 
           <!-- 显示选项 -->
@@ -183,20 +183,19 @@ const O = computed(() => ({ x: canvasW.value / 2, y: canvasH.value / 2 }))
 const rayLen = computed(() => Math.min(250, canvasH.value / 2 - 40, canvasW.value / 2 - 40))
 
 // ========== 反射几何 ==========
-// 法线方向：候选 (-sinθ, cosθ) 与 (sinθ, -cosθ)，选更靠"左"的（入射侧）；平局选朝上的
+// 法线方向：候选 (-sinθ, cosθ) 与 (sinθ, -cosθ)，始终选"指向左侧"（入射侧）的；
+// 水平镜面时选朝上的。这样镜面 360° 转动时光源始终稳定在左侧。
 const normalDir = computed(() => {
   const rad = degToRad(mirrorAngle.value)
   const s = Math.sin(rad)
   const c = Math.cos(rad)
   const n1 = { x: -s, y: c }
   const n2 = { x: s, y: -c }
-  const dot1 = n1.x * -1 // 与 (-1, 0) 点积
-  const dot2 = n2.x * -1
-  if (Math.abs(dot1 - dot2) < 1e-9) {
-    // 平局：选 y 更小（朝上）的
+  if (Math.abs(s) < 1e-9) {
+    // 水平镜面（θ=0 或 180）：选朝上的法线
     return n1.y <= n2.y ? n1 : n2
   }
-  return dot1 > dot2 ? n1 : n2
+  return s > 0 ? n1 : n2
 })
 
 // 向量旋转（数学正方向）：rot(v, α)
