@@ -59,9 +59,9 @@ const chapterData = {
       { id: 'straight-line', num: '01', name: '光的直线传播与小孔成像', description: '光沿直线传播的经典验证：小孔成像的倒立实像', status: 'done' },
       { id: 'reflection', num: '02', name: '光的反射定律', description: '探究反射角与入射角的关系及三线共面规律', status: 'done' },
       { id: 'mirror', num: '03', name: '平面镜成像', description: '探究像与物的对称关系：等大、正立、虚像的作图', status: 'done' },
-      { id: 'refraction', num: '04', name: '光的折射', description: '光从空气斜射入水中的偏折规律', status: 'dev' },
+      { id: 'refraction', num: '04', name: '光的折射', description: '探究光从空气进入介质时的偏折规律与折射率', status: 'done' },
       { id: 'convex-lens', num: '05', name: '凸透镜成像规律', description: '五区成像规律与照相机/投影仪/放大镜', status: 'done' },
-      { id: 'dispersion', num: '06', name: '光的色散', description: '三棱镜分解白光：红橙黄绿蓝靛紫', status: 'dev' }
+      { id: 'dispersion', num: '06', name: '光的色散', description: '白光经三棱镜分解为七色光：不同色光折射率不同', status: 'done' }
     ]
   },
   electricity: { title: '电学', experiments: [] }
