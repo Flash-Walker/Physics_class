@@ -668,32 +668,40 @@ export class OpticsEngine extends PhysicsEngine {
    * ② 过光心 → 方向不变
    * ③ 过焦点 F → 折射后平行于主光轴
    * 注：u < f 成虚像时，组件需自行绘制出射光线的反向延长线（虚线）找像点
-   * @param {{x:number, y:number}} tip 物点（物体顶端，y ≠ 0）
+   * @param {{x:number, y:number}} tip 物点（物体顶端，y ≠ axisY）
    * @param {number} lensX 透镜平面 x 坐标
    * @param {number} f 焦距（> 0）
    * @param {Object} [opts]
    * @param {number} [opts.length] 出射光线延伸长度（默认 400）
+   * @param {number} [opts.axisY] 主光轴 y 坐标（默认 0，即世界坐标系）
    * @returns {Array<{id:string, color:string, segments:Array<{from:{x,y}, to:{x,y}}>}>}
    */
   lensSpecialRays(tip, lensX, f, opts = {}) {
     const L = opts.length ?? 400
+    const axisY = opts.axisY ?? 0 // 主光轴 y 坐标（画布像素坐标系）
     const colors = ['#e74c3c', '#2e9e44', '#1890ff']
     const results = []
-    if (Math.abs(tip.y) < 1e-6) return results // 物点在主光轴上：退化为一条直线，交由组件处理
+    if (Math.abs(tip.y - axisY) < 1e-6) return results // 物点在主光轴上：退化为一条直线，交由组件处理
 
-    // ① 平行光线：水平入射 → 透镜 → 过焦点 F'（lensX + f, 0）
+    // ① 平行光线：水平入射 → 透镜 → 折射后过焦点 F'（lensX + f, axisY），沿该方向延伸
+    const dx1 = f
+    const dy1 = axisY - tip.y
+    const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1) || 1
     results.push({
       id: 'ray-parallel',
       color: colors[0],
       segments: [
         { from: { x: tip.x, y: tip.y }, to: { x: lensX, y: tip.y } },
-        { from: { x: lensX, y: tip.y }, to: { x: lensX + f, y: 0 } }
+        {
+          from: { x: lensX, y: tip.y },
+          to: { x: lensX + (dx1 / len1) * L, y: tip.y + (dy1 / len1) * L }
+        }
       ]
     })
 
-    // ② 过光心：直线穿过，方向不变
+    // ② 过光心 O（lensX, axisY）：直线穿过，方向不变
     const dx2 = lensX - tip.x
-    const dy2 = -tip.y
+    const dy2 = axisY - tip.y
     const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1
     const ux2 = dx2 / len2
     const uy2 = dy2 / len2
@@ -701,13 +709,13 @@ export class OpticsEngine extends PhysicsEngine {
       id: 'ray-center',
       color: colors[1],
       segments: [
-        { from: { x: tip.x, y: tip.y }, to: { x: lensX + ux2 * L, y: uy2 * L } }
+        { from: { x: tip.x, y: tip.y }, to: { x: tip.x + ux2 * L, y: tip.y + uy2 * L } }
       ]
     })
 
-    // ③ 过焦点 F（lensX - f, 0）→ 透镜 → 平行出射
+    // ③ 过焦点 F（lensX - f, axisY）→ 透镜 → 平行出射
     const dx3 = tip.x - (lensX - f)
-    const dy3 = tip.y
+    const dy3 = tip.y - axisY
     const len3 = Math.sqrt(dx3 * dx3 + dy3 * dy3) || 1
     const ux3 = dx3 / len3
     const uy3 = dy3 / len3

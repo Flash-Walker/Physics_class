@@ -10,7 +10,23 @@
       <!-- 左侧：参数控制 -->
       <template #control>
         <div class="lens-control">
-          <p class="control-tip">🔍 凸透镜焦距 f = 10 cm<br />拖动物距滑块，观察成像变化（物近像远像变大）</p>
+          <p class="control-tip">🔍 焦距 f 与物距 u 都可调节<br />口诀：物近像远像变大（成实像时）</p>
+
+          <!-- 焦距滑块 -->
+          <div class="control-group">
+            <div class="group-label">焦距 f（透镜的焦距）</div>
+            <input
+              type="range"
+              class="u-slider"
+              min="1"
+              max="20"
+              step="1"
+              v-model.number="f"
+            />
+            <div class="u-value">
+              f = <b>{{ f }}</b> cm
+            </div>
+          </div>
 
           <!-- 物距滑块 -->
           <div class="control-group">
@@ -18,8 +34,8 @@
             <input
               type="range"
               class="u-slider"
-              min="5"
-              max="30"
+              :min="uMin"
+              :max="uMax"
               step="0.5"
               v-model.number="u"
             />
@@ -79,7 +95,7 @@
             <div class="group-title">📐 透镜成像公式</div>
             <div class="formula-box">
               <div class="formula-main">1/f = 1/u + 1/v</div>
-              <div class="formula-sub">f = 10 cm（焦距固定）</div>
+              <div class="formula-sub">f = {{ f }} cm（焦距可调 1~20cm）</div>
             </div>
           </div>
 
@@ -120,7 +136,7 @@
           <div class="data-group">
             <div class="group-title">公式展开</div>
             <div class="formula-detail">
-              <div class="detail-line">v = uf/(u−f) = {{ u.toFixed(1) }}×10/({{ u.toFixed(1) }}−10)</div>
+              <div class="detail-line">v = uf/(u−f) = {{ u.toFixed(1) }}×{{ f }}/({{ u.toFixed(1) }}−{{ f }})</div>
               <div class="detail-line judge">{{ formulaResult }}</div>
             </div>
           </div>
@@ -134,7 +150,7 @@
           <div class="formula-block">
             <h4>核心公式</h4>
             <ul>
-              <li v-for="(f, i) in config.theory.formulas" :key="i">{{ f }}</li>
+              <li v-for="(fItem, i) in config.theory.formulas" :key="i">{{ fItem }}</li>
             </ul>
           </div>
           <div class="keypoint-block">
@@ -166,17 +182,17 @@ import {
 const config = convexLensConfig
 
 // ========== 实验常量 ==========
-const F = 10          // 焦距 cm
-const SCALE = 9       // px / cm
-const OBJ_H = 40      // 物体高度 px（≈4.4cm）
+const SCALE = 9       // 基准比例 px/cm（画布会自动缩放以容纳成像）
+const OBJ_H = 40      // 物体高度 px（≈4.4cm，纵向示意，不随缩放变化）
 
 // ========== 交互状态 ==========
-const u = ref(25)              // 物距 cm
-const objectStyle = ref('arrow')  // arrow | candle
-const showRays = ref(true)     // 三条特殊光线
-const showScreen = ref(true)   // 光屏
-const runState = ref('idle')   // 引擎运行状态
-const rayProgress = ref([])    // 引擎光线进度快照
+const f = ref(10)                // 焦距 cm（1~20 整数可调）
+const u = ref(25)                // 物距 cm
+const objectStyle = ref('arrow') // arrow | candle
+const showRays = ref(true)       // 三条特殊光线
+const showScreen = ref(true)     // 光屏
+const runState = ref('idle')     // 引擎运行状态
+const rayProgress = ref([])      // 引擎光线进度快照
 
 // ========== 光学引擎：驱动三条光线的传播动画 ==========
 // 说明：光线路径由 lensSpecialRays 按当前物距实时计算（折线），
@@ -192,8 +208,14 @@ engine.onUpdate = (state) => {
 // 初始化引擎（触发一次 onUpdate，同步初始进度）
 engine.reset()
 
-// 物距变化 → 光线进度清零重播（运行中则继续播放）
+// 物距/焦距变化 → 光线进度清零重播（运行中则继续播放）
 watch(u, () => {
+  const wasRunning = engine.state === 'running'
+  engine.reset()
+  if (wasRunning) engine.start()
+})
+watch(f, () => {
+  if (u.value > uMax.value) u.value = uMax.value // 物距上限随焦距调整
   const wasRunning = engine.state === 'running'
   engine.reset()
   if (wasRunning) engine.start()
@@ -214,55 +236,66 @@ const handleCanvasResize = ({ width, height }) => {
 
 const lensX = computed(() => canvasW.value * 0.62) // 透镜位置（画布右侧约 62%）
 const axisY = computed(() => canvasH.value * 0.5)  // 主光轴
-const objX = computed(() => lensX.value - u.value * SCALE)
-const tip = computed(() => ({ x: objX.value, y: axisY.value - OBJ_H }))
+
+const uMin = 0.5
+const uMax = computed(() => Math.max(30, 2 * f.value + 5))
 
 // ========== 成像计算（复用 physicsUtils） ==========
-const v = computed(() => lensImageDistance(F, u.value))
-const cls = computed(() => classifyLensImage(F, u.value))
-const mag = computed(() => lensMagnification(F, u.value))
+const v = computed(() => lensImageDistance(f.value, u.value))
+const cls = computed(() => classifyLensImage(f.value, u.value))
+const mag = computed(() => lensMagnification(f.value, u.value))
+
+// ========== 自动缩放：保证物体与像（含虚像）都落在画布内 ==========
+const leftSpace = computed(() => lensX.value - 70)   // 透镜左侧可用宽度
+const rightSpace = computed(() => canvasW.value - lensX.value - 60) // 透镜右侧可用宽度
+const scale = computed(() => {
+  let s = SCALE
+  // 物体侧：物体本身 + 虚像（在物体同侧，|v| 可能大于 u）
+  const needLeft = Math.max(u.value, cls.value.type === 'virtual' ? Math.abs(v.value) : 0)
+  if (needLeft > 0) s = Math.min(s, leftSpace.value / needLeft)
+  // 像侧：实像
+  if (cls.value.type === 'real' && isFinite(v.value)) s = Math.min(s, rightSpace.value / v.value)
+  return Math.max(s, 0.5) // 下限保护，防止整体缩成一点
+})
+
+const objX = computed(() => lensX.value - u.value * scale.value)
+const tip = computed(() => ({ x: objX.value, y: axisY.value - OBJ_H }))
 const imgX = computed(() => {
   if (!isFinite(v.value)) return lensX.value
-  return Math.min(lensX.value + v.value * SCALE, canvasW.value - 50)
-})
-const imgH = computed(() => {
-  if (!isFinite(v.value)) return 0
-  return OBJ_H * (Math.abs(v.value) / u.value)
+  return lensX.value + v.value * scale.value // 真实位置（由自动缩放保证在画布内）
 })
 
-// 三条特殊光线路径（引擎方法计算）
+// 像高：真实值可能远超高（u→f 时），绘制时限制最大高度，超出时显示提示
+const trueImgH = computed(() => (isFinite(v.value) ? OBJ_H * (Math.abs(v.value) / u.value) : 0))
+const maxImgH = computed(() => axisY.value - 30)
+const imgH = computed(() => Math.min(trueImgH.value, maxImgH.value))
+const imgOffScreen = computed(() => {
+  if (cls.value.type === 'none') return false
+  return trueImgH.value > maxImgH.value || imgX.value > canvasW.value - 40 || imgX.value < 40
+})
+
+// ========== 三条特殊光线路径（引擎方法计算） ==========
+const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
 const rayPaths = computed(() => {
   if (!showRays.value) return []
-  return engine.lensSpecialRays(tip.value, lensX.value, F * SCALE, { length: 340 })
+  // 光线长度按汇聚点（像顶端）自适应，保证三条线都能延伸到汇聚点
+  const conv = { x: imgX.value, y: axisY.value + (cls.value.type === 'real' ? trueImgH.value : -trueImgH.value) }
+  const L = Math.max(400, dist(tip.value, conv) + 80)
+  return engine.lensSpecialRays(tip.value, lensX.value, f.value * scale.value, {
+    length: L,
+    axisY: axisY.value
+  })
 })
 
-// 数据面板展示
+// ========== 数据面板展示 ==========
 const vDisplay = computed(() => (!isFinite(v.value) ? '—' : v.value.toFixed(1)))
 const magDisplay = computed(() => (!isFinite(v.value) ? '—' : mag.value.toFixed(2)))
 const imageHeightDisplay = computed(() => {
   if (!isFinite(v.value)) return '—'
-  const h = lensImageHeight(OBJ_H / SCALE, F, u.value)
-  return h.toFixed(1)
-})
-const natureText = computed(() => {
-  if (cls.value.type === 'none') return '不成像'
-  return `${cls.value.orientation === 'inverted' ? '倒立' : '正立'}、${sizeText.value}、${cls.value.type === 'real' ? '实像' : '虚像'}`
-})
-const sizeText = computed(() => {
-  const map = { reduced: '缩小', same: '等大', magnified: '放大', none: '—' }
-  return map[cls.value.size]
-})
-const natureDetail = computed(() => {
-  const map = {
-    'u > 2f': '物距大于二倍焦距',
-    'u = 2f': '物距等于二倍焦距',
-    'f < u < 2f': '物距在一倍与二倍焦距之间',
-    'u = f': '物距等于焦距',
-    'u < f': '物距小于焦距'
-  }
-  return map[zoneKey.value] || ''
+  return lensImageHeight(OBJ_H / SCALE, f.value, u.value).toFixed(1)
 })
 const zoneKey = computed(() => {
+  const F = f.value
   if (u.value > 2 * F) return 'u > 2f'
   if (Math.abs(u.value - 2 * F) < 1e-9) return 'u = 2f'
   if (u.value > F) return 'f < u < 2f'
@@ -279,6 +312,24 @@ const zoneText = computed(() => {
   }
   return map[zoneKey.value]
 })
+const sizeText = computed(() => {
+  const map = { reduced: '缩小', same: '等大', magnified: '放大', none: '—' }
+  return map[cls.value.size]
+})
+const natureText = computed(() => {
+  if (cls.value.type === 'none') return '不成像'
+  return `${cls.value.orientation === 'inverted' ? '倒立' : '正立'}、${sizeText.value}、${cls.value.type === 'real' ? '实像' : '虚像'}`
+})
+const natureDetail = computed(() => {
+  const map = {
+    'u > 2f': '物距大于二倍焦距',
+    'u = 2f': '物距等于二倍焦距',
+    'f < u < 2f': '物距在一倍与二倍焦距之间',
+    'u = f': '物距等于焦距',
+    'u < f': '物距小于焦距'
+  }
+  return map[zoneKey.value] || ''
+})
 const formulaResult = computed(() => {
   if (!isFinite(v.value)) return 'u = f → 分母为 0，不成像（出射平行光）'
   return `= ${v.value.toFixed(1)} cm${v.value < 0 ? '（负号：虚像，与物同侧）' : ''}`
@@ -286,6 +337,8 @@ const formulaResult = computed(() => {
 
 // ========== 画布状态（传给 draw） ==========
 const canvasState = computed(() => ({
+  f: f.value,
+  scale: scale.value,
   u: u.value,
   v: v.value,
   cls: cls.value,
@@ -298,17 +351,17 @@ const canvasState = computed(() => ({
   tip: tip.value,
   imgX: imgX.value,
   imgH: imgH.value,
+  trueImgH: trueImgH.value,
+  imgOffScreen: imgOffScreen.value,
   rays: rayProgress.value,
   engineState: engine.state,
   rayPaths: rayPaths.value
 }))
 
 // ========== 绘制函数 ==========
-const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
-
 const drawScene = (ctx, state, utils) => {
   const { lensX, axisY } = state
-  const fPx = F * SCALE
+  const fPx = state.f * state.scale // 焦距对应的像素距离（随自动缩放变化）
 
   // 主光轴（点划线）
   ctx.save()
@@ -352,7 +405,7 @@ const drawScene = (ctx, state, utils) => {
 
     // 虚像：画三条出射光线的反向延长线（虚线），汇聚于虚像点
     if (state.cls.type === 'virtual') {
-      const virtualTip = { x: state.imgX, y: axisY - state.imgH }
+      const virtualTip = { x: state.imgX, y: axisY - state.trueImgH }
       ctx.save()
       ctx.strokeStyle = 'rgba(46,158,68,.6)'
       ctx.lineWidth = 1.5
@@ -382,6 +435,16 @@ const drawScene = (ctx, state, utils) => {
     ctx.fillStyle = '#999'
     ctx.textAlign = 'center'
     ctx.fillText('u = f：折射后为平行光，不成像', utils.canvasWidth / 2, 32)
+    ctx.restore()
+  }
+
+  // 像距过大提示
+  if (state.imgOffScreen) {
+    ctx.save()
+    ctx.font = '13px "Microsoft YaHei"'
+    ctx.fillStyle = '#e6a23c'
+    ctx.textAlign = 'center'
+    ctx.fillText('像距过大：成像超出屏幕显示范围（真实数据见右侧面板）', utils.canvasWidth / 2, 32)
     ctx.restore()
   }
 
