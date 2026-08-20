@@ -4,6 +4,8 @@ import { fileURLToPath, URL } from 'node:url'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // GitHub Pages 子路径部署（https://flash-walker.github.io/Physics_class/）
+  base: '/Physics_class/',
   plugins: [vue()],
   resolve: {
     alias: {
@@ -21,5 +23,9 @@ export default defineConfig({
   server: {
     port: 5173,
     open: false
+  },
+  preview: {
+    // 允许任意 Host 访问（内网穿透/公网隧道域名会变，无法逐个枚举）
+    allowedHosts: true
   }
 })
