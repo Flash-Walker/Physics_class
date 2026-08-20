@@ -37,7 +37,7 @@
             把入射角调小到 50° 以内试试。
           </div>
 
-          <p class="control-hint">💡 点「开始」播放动画：白光射入棱镜 → 棱镜内开始分色 → 出射后七色展开</p>
+          <p class="control-hint">💡 点「开始」播放动画：白光射入棱镜 → 棱镜内开始分色 → 出射后七色展开。<br />※ 七色真实角度差仅约 1°，为便于观察，出射角度已按比例放大显示（顺序不变：红偏折最小、紫最大）</p>
         </div>
       </template>
 
@@ -235,7 +235,8 @@ const traces = computed(() => {
   const A = PRISM.A()
   const B = PRISM.B()
   const C = PRISM.C()
-  return COLORS.map((c) => {
+  // 第一遍：逐色追迹（求入射点 / 出射点 / 出射方向）
+  const raw = COLORS.map((c) => {
     // ① 左面折射
     const dPrism = refractDir(beamDir.value, nAB, 1, c.n)
     if (!dPrism) return { ...c, ok: false }
@@ -248,9 +249,31 @@ const traces = computed(() => {
     const i2 = angleBetween(dPrism, nBC)
     const dOut = refractDir(dPrism, nBC, c.n, 1)
     if (!dOut) return { ...c, ok: false, dPrism, POut }
-    // ④ 出射端点
-    const end = { x: POut.x + dOut.x * 200, y: POut.y + dOut.y * 200 }
-    return { ...c, ok: true, dPrism, POut, dOut, end, i2, r2: refractionAngle(c.n, 1, i2) }
+    return { ...c, ok: true, dPrism, POut, dOut, i2, r2: refractionAngle(c.n, 1, i2) }
+  })
+  const oks = raw.filter(t => t.ok)
+  if (!oks.length) return raw
+  // 第二遍：色散增强（七色真实角度差仅约 1°，画布上挤成一团看不清；
+  // 以红光出射方向为基准，把红→紫的总分离角放大到固定目标值，
+  // 顺序与相对大小保持不变，仅作可视化增强）
+  const rawAngles = oks.map(t => Math.atan2(t.dOut.y, t.dOut.x))
+  const redAngle = rawAngles[0]
+  const span = Math.max(...rawAngles) - Math.min(...rawAngles)
+  const targetSpan = degToRad(7.5)
+  const dFactor = Math.max(1, Math.min(12, targetSpan / Math.max(span, 1e-6)))
+  return raw.map((t) => {
+    if (!t.ok) return t
+    const a = Math.atan2(t.dOut.y, t.dOut.x)
+    const dOut = rotRad(oks[0].dOut, (a - redAngle) * dFactor)
+    // 出射长度自适应（保证末端在画布内）
+    const ang = Math.atan2(dOut.y, dOut.x)
+    let L = 300
+    L = Math.min(L, (canvasH.value - t.POut.y - 30) / Math.max(Math.sin(ang), 0.15))
+    if (Math.cos(ang) > 0.01) L = Math.min(L, (canvasW.value - 30 - t.POut.x) / Math.cos(ang))
+    else if (Math.cos(ang) < -0.01) L = Math.min(L, (t.POut.x - 30) / -Math.cos(ang))
+    L = Math.max(L, 60)
+    const end = { x: t.POut.x + dOut.x * L, y: t.POut.y + dOut.y * L }
+    return { ...t, dOut, end, outLen: L, dFactor }
   })
 })
 
@@ -272,11 +295,16 @@ const clkProgress = computed(() => {
 const pAll = computed(() => (engine.state === 'idle' ? 1 : clkProgress.value))
 
 const lenIn = computed(() => Math.hypot(PIn.value.x - P0.value.x, PIn.value.y - P0.value.y))
-const lenOut = 200
-const remain = computed(() => (lenIn.value + avgPrismLen.value + lenOut) * pAll.value)
+// 出射段平均长度（各色自适应不同，动画分段用平均值）
+const avgOutLen = computed(() => {
+  const oks = traces.value.filter(t => t.ok && t.outLen)
+  if (!oks.length) return 200
+  return oks.reduce((s, t) => s + t.outLen, 0) / oks.length
+})
+const remain = computed(() => (lenIn.value + avgPrismLen.value + avgOutLen.value) * pAll.value)
 const pIn = computed(() => Math.min(1, remain.value / lenIn.value))
 const pPrism = computed(() => Math.max(0, Math.min(1, (remain.value - lenIn.value) / avgPrismLen.value)))
-const pOut = computed(() => Math.max(0, Math.min(1, (remain.value - lenIn.value - avgPrismLen.value) / lenOut)))
+const pOut = computed(() => Math.max(0, Math.min(1, (remain.value - lenIn.value - avgPrismLen.value) / avgOutLen.value)))
 
 // 出射七色微错开（红先紫后，增强层次感）
 const pOutColor = (idx) => {
@@ -329,7 +357,7 @@ const drawScene = (ctx, state, utils) => {
   ctx.fillText('三棱镜（玻璃）', cx, cy + 95)
   ctx.restore()
 
-  // ② 入射白光束（白 3px + 灰描边，从光源到入射点，按进度生长）
+  // ② 入射白光束（白 4px + 灰描边，从光源到入射点，按进度生长）
   if (state.pIn > 0) {
     const ex = state.P0.x + (PIn.x - state.P0.x) * state.pIn
     const ey = state.P0.y + (PIn.y - state.P0.y) * state.pIn
@@ -337,14 +365,14 @@ const drawScene = (ctx, state, utils) => {
     ctx.lineCap = 'round'
     // 描边
     ctx.strokeStyle = 'rgba(90, 90, 100, 0.55)'
-    ctx.lineWidth = 5.5
+    ctx.lineWidth = 7
     ctx.beginPath()
     ctx.moveTo(state.P0.x, state.P0.y)
     ctx.lineTo(ex, ey)
     ctx.stroke()
     // 白光
     ctx.strokeStyle = '#ffffff'
-    ctx.lineWidth = 3
+    ctx.lineWidth = 4
     ctx.beginPath()
     ctx.moveTo(state.P0.x, state.P0.y)
     ctx.lineTo(ex, ey)
@@ -360,7 +388,7 @@ const drawScene = (ctx, state, utils) => {
       const ey = PIn.y + (t.POut.y - PIn.y) * state.pPrism
       ctx.save()
       ctx.strokeStyle = t.color
-      ctx.lineWidth = 1.6
+      ctx.lineWidth = 2.2
       ctx.lineCap = 'round'
       ctx.beginPath()
       ctx.moveTo(PIn.x, PIn.y)
@@ -370,27 +398,27 @@ const drawScene = (ctx, state, utils) => {
     })
   }
 
-  // ④ 出射七色光（从出射点展开，微错开 + 方向箭头）
+  // ④ 出射七色光（加粗光带 + 末端色点，微错开 + 方向箭头）
   state.traces.forEach((t, idx) => {
     if (!t.ok || !t.dOut) return
     const p = pOutColor(idx)
     if (p <= 0) return
-    const ex = t.POut.x + t.dOut.x * 200 * p
-    const ey = t.POut.y + t.dOut.y * 200 * p
+    const ex = t.POut.x + t.dOut.x * t.outLen * p
+    const ey = t.POut.y + t.dOut.y * t.outLen * p
     ctx.save()
     ctx.strokeStyle = t.color
     ctx.fillStyle = t.color
-    ctx.lineWidth = 2
+    ctx.lineWidth = 3.5
     ctx.lineCap = 'round'
     ctx.beginPath()
     ctx.moveTo(t.POut.x, t.POut.y)
     ctx.lineTo(ex, ey)
     ctx.stroke()
     // 方向箭头（中点）
-    const mx = t.POut.x + t.dOut.x * 100
-    const my = t.POut.y + t.dOut.y * 100
+    const mx = t.POut.x + t.dOut.x * t.outLen * 0.5
+    const my = t.POut.y + t.dOut.y * t.outLen * 0.5
     if (p >= 0.5) {
-      const size = 6
+      const size = 7
       ctx.beginPath()
       ctx.moveTo(mx + t.dOut.x * size, my + t.dOut.y * size)
       ctx.lineTo(mx - t.dOut.y * size * 0.5, my + t.dOut.x * size * 0.5)
@@ -398,6 +426,10 @@ const drawScene = (ctx, state, utils) => {
       ctx.closePath()
       ctx.fill()
     }
+    // 末端色点（光斑，随光线生长移动）
+    ctx.beginPath()
+    ctx.arc(ex, ey, 4.5, 0, Math.PI * 2)
+    ctx.fill()
     // 色名标签（末端）
     if (state.showLabels) {
       ctx.font = '12px "Microsoft YaHei"'
@@ -433,6 +465,14 @@ const drawScene = (ctx, state, utils) => {
     ctx.fillText('⚠ 部分色光发生全反射，无法出射', utils.canvasWidth - 16, 26)
     ctx.restore()
   }
+
+  // ⑦ 说明：色散角度已放大（画布左下角）
+  ctx.save()
+  ctx.fillStyle = 'rgba(140, 140, 150, 0.75)'
+  ctx.font = '11px "Microsoft YaHei"'
+  ctx.textAlign = 'left'
+  ctx.fillText('※ 为便于观察，七色出射角度已按比例放大显示', 16, utils.canvasHeight - 14)
+  ctx.restore()
 }
 
 // ========== 生命周期 ==========
