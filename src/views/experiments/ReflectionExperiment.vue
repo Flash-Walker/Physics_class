@@ -238,6 +238,7 @@ const rayPaths = computed(() => [{
 // ========== 画布状态 ==========
 const canvasState = computed(() => ({
   incidentAngle: incidentAngle.value,
+  reflectAngle: reflectAngle.value,
   mirrorAngle: mirrorAngle.value,
   showNormal: showNormal.value,
   showAngles: showAngles.value,
