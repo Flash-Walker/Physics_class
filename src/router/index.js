@@ -22,11 +22,17 @@ const routes = [
     name: 'Experiment',
     component: ExperimentPage,
     meta: { title: '实验模拟' }
+  },
+  // 兜底：未匹配路径回首页（避免空白页）
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/'
   }
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  // base 与 vite.config 的 base 保持一致（部署在 /Physics_class/ 子路径下）
+  history: createWebHistory('/Physics_class/'),
   routes
 })
 

@@ -210,9 +210,11 @@ const clkProgress = computed(() => {
   return r ? r.progress : 0
 })
 // 连线生长进度（idle 时完整显示）
-const lineProgress = computed(() => (engine.state === 'idle' ? 1 : clkProgress.value))
+// 注意：条件用响应式 runState——engine.state 是普通属性，computed 不跟踪它，
+// 三元短路会让 clkProgress 从未被读取、computed 永不失效（动画卡在完整画面）
+const lineProgress = computed(() => (runState.value === 'idle' ? 1 : clkProgress.value))
 // 虚像淡入：连线画到约 1/3 后开始显现
-const imgAlpha = computed(() => (engine.state === 'idle' ? 1 : Math.max(0, Math.min(1, (clkProgress.value - 0.35) / 0.65))))
+const imgAlpha = computed(() => (runState.value === 'idle' ? 1 : Math.max(0, Math.min(1, (clkProgress.value - 0.35) / 0.65))))
 
 // ========== 画布状态 ==========
 const canvasState = computed(() => ({

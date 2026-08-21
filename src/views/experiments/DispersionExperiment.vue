@@ -338,7 +338,10 @@ const clkProgress = computed(() => {
   const r = rayProgress.value.find(x => x.id === 'ray-clk')
   return r ? r.progress : 0
 })
-const pAll = computed(() => (engine.state === 'idle' ? 1 : clkProgress.value))
+// 总进度：idle 时完整显示；运行时跟随时钟光线进度
+// 注意：条件必须用响应式的 runState（engine.state 是普通属性，computed 不会跟踪它，
+// 且三元短路会导致 clkProgress 从未被读取、永远不失效——动画会卡在完整画面）
+const pAll = computed(() => (runState.value === 'idle' ? 1 : clkProgress.value))
 
 const lenIn = computed(() => Math.hypot(PIn.value.x - P0.value.x, PIn.value.y - P0.value.y))
 // 出射段平均长度（各色自适应不同，动画分段用平均值）
@@ -378,6 +381,34 @@ const canvasState = computed(() => ({
 
 // ========== 绘制函数 ==========
 const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y)
+
+// 角度弧线标注：从 fromDir 方向到 toDir 方向画弧（弧线随 progress 渐进生长，文字淡入），标 label
+// 与反射实验的标注样式保持一致
+const drawAngleArc = (ctx, O, fromDir, toDir, radius, color, label, labelR, progress = 1) => {
+  const a0 = Math.atan2(fromDir.y, fromDir.x)
+  const a1 = Math.atan2(toDir.y, toDir.x)
+  // 归一化差值到 [-180°, 180°]
+  let delta = ((a1 - a0 + Math.PI * 3) % (Math.PI * 2)) - Math.PI
+  if (Math.abs(delta) < 0.02) return // 夹角为 0（垂直入射），不画弧
+  const p = Math.max(0, Math.min(1, progress))
+  if (p <= 0) return
+  ctx.save()
+  // 弧线：随 progress 从 0 生长到完整弧长
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.arc(O.x, O.y, radius, a0, a0 + delta * p, delta < 0)
+  ctx.stroke()
+  // 标签：淡入（progress 过半后快速显现），位置在弧中点外侧
+  const mid = a0 + delta / 2
+  ctx.fillStyle = color
+  ctx.font = 'bold 13px "Microsoft YaHei"'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.globalAlpha = Math.min(1, (p - 0.35) / 0.65) // 弧线画到约 1/3 后文字开始淡入
+  ctx.fillText(label, O.x + Math.cos(mid) * labelR, O.y + Math.sin(mid) * labelR)
+  ctx.restore()
+}
 
 const drawScene = (ctx, state, utils) => {
   const { cx, cy, PIn } = state
@@ -486,41 +517,52 @@ const drawScene = (ctx, state, utils) => {
     ctx.restore()
   })
 
-  // ⑤ 入射角标注（入射光线 ↔ 左面法线之间的真实夹角 i）
+  // ⑤ 入射角标注（入射光线 ↔ 左面法线，空气侧楔形；法线虚线锚定）
   if (state.incidentAngle > 0 && state.pIn >= 1) {
-    const a0 = Math.atan2(state.beamDir.y, state.beamDir.x) // 入射光线方向（指向棱镜）
-    const aN = Math.atan2(nAB.y, nAB.x) // 左面法线（指向棱镜内）
-    const mid = (a0 + aN) / 2
+    const nOut = { x: -nAB.x, y: -nAB.y }                       // 空气侧法线（指向棱镜外）
+    const back = { x: -state.beamDir.x, y: -state.beamDir.y }   // 入射光线反向延长（指向光源一侧）
+    const nLen = 52
+    // 法线虚线（过入射点 PIn，两侧出头）
     ctx.save()
-    ctx.strokeStyle = '#e8b339'
-    ctx.lineWidth = 1.6
+    ctx.strokeStyle = '#9aa3af'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([6, 5])
     ctx.beginPath()
-    ctx.arc(PIn.x, PIn.y, 30, a0, aN, false)
+    ctx.moveTo(PIn.x - nAB.x * nLen, PIn.y - nAB.y * nLen)
+    ctx.lineTo(PIn.x + nAB.x * nLen, PIn.y + nAB.y * nLen)
     ctx.stroke()
-    ctx.fillStyle = '#e8b339'
-    ctx.font = 'bold 12px "Microsoft YaHei"'
+    ctx.setLineDash([])
+    ctx.fillStyle = '#888'
+    ctx.font = '12px "Microsoft YaHei"'
     ctx.textAlign = 'center'
-    ctx.fillText(`i = ${state.incidentAngle.toFixed(1)}°`, PIn.x + Math.cos(mid) * 46, PIn.y + Math.sin(mid) * 46 + 5)
+    ctx.fillText('法线', PIn.x + nOut.x * (nLen + 16), PIn.y + nOut.y * (nLen + 16))
     ctx.restore()
+    // 入射角弧线 + 数值（空气侧楔形：反向光线 ↔ 外法线）
+    drawAngleArc(ctx, PIn, back, nOut, 34, '#e8b339', `i = ${state.incidentAngle.toFixed(1)}°`, 52, 1)
   }
 
   // ⑤b 出射角标注（红光出射光线 ↔ 右面外法线；红光方向未经增强，即真实出射角 e）
   const redT = state.traces.find(t => t.name === '红' && t.ok)
   if (redT && state.pOutColor0 >= 1) {
-    const aN = Math.atan2(-nBC.y, -nBC.x) // 右面外法线（指向棱镜外）
-    const a1 = Math.atan2(redT.dOut.y, redT.dOut.x)
-    const mid = (aN + a1) / 2
+    const nOut = { x: -nBC.x, y: -nBC.y }   // 右面外法线（指向棱镜外，空气侧）
+    const nLen = 52
+    // 法线虚线（过出射点 POut，两侧出头）
     ctx.save()
-    ctx.strokeStyle = '#3d9bff'
-    ctx.lineWidth = 1.6
+    ctx.strokeStyle = '#9aa3af'
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([6, 5])
     ctx.beginPath()
-    ctx.arc(redT.POut.x, redT.POut.y, 30, aN, a1, false)
+    ctx.moveTo(redT.POut.x - nOut.x * nLen, redT.POut.y - nOut.y * nLen)
+    ctx.lineTo(redT.POut.x + nOut.x * nLen, redT.POut.y + nOut.y * nLen)
     ctx.stroke()
-    ctx.fillStyle = '#3d9bff'
-    ctx.font = 'bold 12px "Microsoft YaHei"'
+    ctx.setLineDash([])
+    ctx.fillStyle = '#888'
+    ctx.font = '12px "Microsoft YaHei"'
     ctx.textAlign = 'center'
-    ctx.fillText(`e = ${redT.eOut.toFixed(1)}°`, redT.POut.x + Math.cos(mid) * 50, redT.POut.y + Math.sin(mid) * 50 + 5)
+    ctx.fillText('法线', redT.POut.x + nOut.x * (nLen + 16), redT.POut.y + nOut.y * (nLen + 16))
     ctx.restore()
+    // 出射角弧线 + 数值（空气侧楔形：外法线 ↔ 红光出射方向）
+    drawAngleArc(ctx, redT.POut, nOut, redT.dOut, 30, '#3d9bff', `e = ${redT.eOut.toFixed(1)}°`, 50, 1)
   }
 
   // ⑥ 全反射提示（画布右上角）
