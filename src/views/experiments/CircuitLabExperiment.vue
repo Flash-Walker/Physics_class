@@ -77,6 +77,43 @@
           <div class="rep-title">{{ circuitReport.ok ? '✅ 校验通过' : '⚠️ 校验未通过' }}</div>
           <div v-for="(m, i) in circuitReport.msgs" :key="i" class="rep-line">{{ m }}</div>
         </div>
+        <div v-if="submitted && solveResult" class="solve-panel" :class="solveResult.ok ? 'ok' : 'bad'">
+          <div class="sp-title">{{ solveResult.ok ? '🔌 电路运行中' : '⛔ ' + solveResult.err }}</div>
+          <template v-if="solveResult.ok">
+            <div class="sp-line">干路电流 <b>{{ solveResult.totalI.toFixed(3) }}A</b>（点击开关/拖动变阻器实时刷新）</div>
+            <table class="sp-table">
+              <thead>
+                <tr><th>元件</th><th>电压</th><th>电流</th><th>功率</th><th>状态</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in comps" :key="c.id">
+                  <td>{{ nameOf(c.type) }}</td>
+                  <td>
+                    <template v-if="meterOf(c)">{{ meterOf(c).reading.toFixed(3) }}{{ meterOf(c).unit }}</template>
+                    <template v-else-if="resultOf(c)">{{ resultOf(c).U.toFixed(3) }}V</template>
+                    <template v-else>—</template>
+                  </td>
+                  <td>
+                    <template v-if="resultOf(c)">{{ resultOf(c).I.toFixed(3) }}A</template>
+                    <template v-else>—</template>
+                  </td>
+                  <td>
+                    <template v-if="resultOf(c)">{{ resultOf(c).P.toFixed(3) }}W</template>
+                    <template v-else>—</template>
+                  </td>
+                  <td>
+                    <template v-if="c.type === 'bulb'">{{ bulbStateName(c) }}</template>
+                    <template v-else-if="c.type === 'switch'">{{ c.params.closed ? '闭合' : '断开' }}</template>
+                    <template v-else-if="c.type === 'switch2'">{{ c.params.position === 'up' ? '掷↑' : '掷↓' }}</template>
+                    <template v-else-if="c.type === 'voltmeter' || c.type === 'ammeter'">{{ c.state.over ? '⚠️超量程' : '档位 ' + c.params.range }}</template>
+                    <template v-else-if="c.type === 'rheostat'">{{ Math.round(c.params.slider * 100) }}%</template>
+                    <template v-else>—</template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+        </div>
         <div v-if="selectedComp" class="param-editor">
           <!-- 电池 -->
           <template v-if="selectedComp.type === 'battery'">
@@ -174,6 +211,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   COLORS,
   COMPONENT_TYPES,
+  BULB_STATES,
   createComponent,
   drawComponent,
   drawPreview,
@@ -183,6 +221,7 @@ import {
   wirePath,
   distToWire
 } from '@/utils/circuit/components.js'
+import { solveCircuit } from '@/utils/circuit/solver.js'
 
 // ---------- 导线 ----------
 const wires = ref([])
@@ -342,13 +381,62 @@ function toggleSwitch2() {
   if (c) c.params.position = c.params.position === 'up' ? 'down' : 'up'
 }
 
-// ---------- M3 提交与电路图生成 ----------
+// ---------- M3/M4 提交、电路图与求解 ----------
 const submitted = ref(false)
 const circuitReport = ref(null)
 const layout = ref(null)
+const solveResult = ref(null)       // M4 求解结果
+const layoutBackup = ref(null)      // 布局前的元件坐标（返回编辑时恢复）
+const dragRheostatCircuit = ref(null) // 电路图模式变阻器拖动
 
 function backToEdit() {
   submitted.value = false
+  // 恢复编辑坐标
+  if (layoutBackup.value) {
+    for (const b of layoutBackup.value) {
+      const c = comps.value.find((x) => x.id === b.id)
+      if (c) { c.x = b.x; c.y = b.y }
+    }
+    layoutBackup.value = null
+  }
+  // 编辑模式不求解不发光
+  comps.value.forEach((c) => { c.state = {} })
+  solveResult.value = null
+}
+
+// M4：求解并写入元件显示状态
+function applySolve(sol) {
+  solveResult.value = sol
+  if (!sol.ok) {
+    comps.value.forEach((c) => { c.state = {} })
+    return
+  }
+  for (const c of comps.value) {
+    c.state = {}
+    if (c.type === 'bulb') {
+      c.state.bulbState = sol.bulbStates.get(c.id) || 'off'
+    } else if (c.type === 'voltmeter' || c.type === 'ammeter') {
+      const mm = sol.meters.get(c.id)
+      if (mm) {
+        c.state.reading = mm.reading
+        c.state.rangeMax = c.params.range
+        c.state.over = mm.reading > c.params.range
+      }
+    }
+  }
+}
+
+function solveNow() {
+  applySolve(solveCircuit(comps.value, wires.value, getTerminals))
+}
+
+// 数据栏求解面板辅助
+const resultOf = (c) => (solveResult.value && solveResult.value.ok ? solveResult.value.results.get(c.id) : null)
+const meterOf = (c) => (solveResult.value && solveResult.value.ok ? solveResult.value.meters.get(c.id) : null)
+function bulbStateName(c) {
+  const s = c.state.bulbState || 'off'
+  const d = BULB_STATES[s]
+  return d ? d.name : s
 }
 
 // 构建拓扑：端子按导线合并为节点，元件为边
@@ -370,11 +458,38 @@ function buildTopo() {
   for (const w of wires.value) {
     if (parent[w.a.termId] && parent[w.b.termId]) union(w.a.termId, w.b.termId)
   }
+  // 变阻器滑杆 C/D 为同一节点（0Ω）
+  for (const c of comps.value) {
+    if (c.type === 'rheostat') {
+      const all = getTerminals(c)
+      const tC = all.find((t) => t.label === 'C')
+      const tD = all.find((t) => t.label === 'D')
+      if (tC && tD) union(tC.id, tD.id)
+    }
+  }
   const compEdges = []
   for (const c of comps.value) {
     let ts = getTerminals(c).map((t) => find(t.id))
-    // 单刀双掷：只取当前导通的两个端子
-    if (c.type === 'switch2') {
+    // 变阻器：按实际接线端取边（滑杆 C/D 已合并）
+    if (c.type === 'rheostat') {
+      const used = new Set()
+      for (const w of wires.value) {
+        if (w.a.compId === c.id) used.add(w.a.termId.slice(w.a.termId.indexOf(':') + 1))
+        if (w.b.compId === c.id) used.add(w.b.termId.slice(w.b.termId.indexOf(':') + 1))
+      }
+      const all = getTerminals(c)
+      const rod = find(all.find((t) => t.label === 'C').id)
+      const tA = find(all.find((t) => t.label === 'A').id)
+      const tB = find(all.find((t) => t.label === 'B').id)
+      const hasRod = used.has('C') || used.has('D')
+      const hasA = used.has('A')
+      const hasB = used.has('B')
+      if (hasA && hasB && !hasRod) ts = [tA, tB]
+      else if (hasA && hasRod) ts = [tA, rod]
+      else if (hasB && hasRod) ts = [tB, rod]
+      else if (hasRod) ts = [rod, rod]
+      else ts = [tA, rod]
+    } else if (c.type === 'switch2') {
       const all = getTerminals(c)
       const com = all.find((t) => t.label === '')
       const arm = all.find((t) => (c.params.position === 'up' ? t.dy < 0 : t.dy > 0))
@@ -519,11 +634,10 @@ function buildLayout() {
     const m = br.comps.length
     br.comps.forEach((e, i) => {
       const cx = Math.min(xA, xB) + (Math.abs(xB - xA) * (i + 1)) / (m + 1)
-      nodes.push({ compId: e.comp.id, x: cx, y: rowY })
+      nodes.push({ compId: e.id, x: cx, y: rowY })
       // 引线到连接点
-      segs.push({ x1: cx - e.comp.w / 2, y1: rowY, x2: cx - e.comp.w / 2, y2: T })
-      segs.push({ x1: cx + e.comp.w / 2, y1: rowY, x2: cx + e.comp.w / 2, y2: T })
-      // 支路顶边水平连接（覆盖在主回路连线上方）
+      segs.push({ x1: cx - e.w / 2, y1: rowY, x2: cx - e.w / 2, y2: T })
+      segs.push({ x1: cx + e.w / 2, y1: rowY, x2: cx + e.w / 2, y2: T })
     })
     // 支路两连接点间水平连线（在 T 处，与主回路连线重合即可——补垂直段）
     segs.push({ x1: Math.min(xA, xB), y1: T, x2: Math.max(xA, xB), y2: T })
@@ -531,9 +645,9 @@ function buildLayout() {
     for (let i = 0; i < m - 1; i++) {
       const c1 = nodes[nodes.length - m + i]
       const c2 = nodes[nodes.length - m + i + 1]
-      segs.push({ x1: c1.x + br.comps[i].comp.w / 2, y1: rowY, x2: c2.x - br.comps[i + 1].comp.w / 2, y2: rowY })
+      segs.push({ x1: c1.x + br.comps[i].w / 2, y1: rowY, x2: c2.x - br.comps[i + 1].w / 2, y2: rowY })
     }
-    reports.push('并联支路：' + br.comps.map((e) => nameOf(e.comp.type)).join(' → '))
+    reports.push('并联支路：' + br.comps.map((e) => nameOf(e.type)).join(' → '))
   })
 
   // 主回路报告
@@ -572,11 +686,17 @@ function submitCircuit() {
     }
     if (ok) {
       const topo = buildTopo()
-      const main = findMainLoop(topo.compEdges)
-      if (!main) {
+      // 短路检测：电源两端被导线直连
+      const shortBat = topo.compEdges.find((e) => e.short && (e.comp.type === 'battery' || e.comp.type === 'batteryBox'))
+      if (shortBat) {
+        msgs.push('⚠️ 电源短路：导线直接连接电源两端！')
+        ok = false
+      }
+      const main = ok ? findMainLoop(topo.compEdges) : null
+      if (!main && ok) {
         msgs.push('未形成闭合回路：从电池正极出发无法回到负极（请检查接线）')
         ok = false
-      } else {
+      } else if (main) {
         const { branches, broken } = classifyRest(main, topo.compEdges)
         if (branches.length) msgs.push('检测到 ' + branches.length + ' 条并联支路（并联电路）')
         if (broken.length) msgs.push('断路元件：' + broken.map((c) => nameOf(c.type)).join('、') + '（未接入回路）')
@@ -588,6 +708,13 @@ function submitCircuit() {
   circuitReport.value = { ok, msgs }
   if (ok) {
     layout.value = buildLayout()
+    // 固化布局坐标到元件（电路图模式交互命中用），备份原坐标
+    layoutBackup.value = comps.value.map((c) => ({ id: c.id, x: c.x, y: c.y }))
+    for (const n of layout.value.nodes) {
+      const c = comps.value.find((x) => x.id === n.compId)
+      if (c) { c.x = n.x; c.y = n.y }
+    }
+    solveNow()
     submitted.value = true
   }
 }
@@ -610,17 +737,9 @@ function drawLayout(ctx, cw, ch) {
     ctx.lineTo(s.x2, s.y2)
     ctx.stroke()
   }
-  // 元件
-  const nodeMap = new Map(l.nodes.map((n) => [n.compId, n]))
+  // 元件（布局坐标已固化到 comps）
   for (const c of comps.value) {
-    const n = nodeMap.get(c.id)
-    if (!n) continue
-    const saved = { x: c.x, y: c.y }
-    c.x = n.x
-    c.y = n.y
     drawComponent(ctx, c)
-    c.x = saved.x
-    c.y = saved.y
   }
   // 标题
   ctx.fillStyle = '#334155'
@@ -683,9 +802,32 @@ function hitSlider(c, x, y) {
 
 function onPointerDown(e) {
   if (e.button !== 0) return
-  // 电路图模式：只读
-  if (submitted.value) return
   const { x, y } = toLocal(e)
+  // 电路图模式：只读，但支持实时交互（开关/电表档位/变阻器滑块）
+  if (submitted.value) {
+    for (let i = comps.value.length - 1; i >= 0; i--) {
+      const c = comps.value[i]
+      if (!hitComponent(c, x, y)) continue
+      if (c.type === 'switch') {
+        c.params.closed = !c.params.closed
+        solveNow()
+      } else if (c.type === 'switch2') {
+        c.params.position = c.params.position === 'up' ? 'down' : 'up'
+        solveNow()
+      } else if (c.type === 'voltmeter') {
+        c.params.range = c.params.range === 3 ? 15 : 3
+        solveNow()
+      } else if (c.type === 'ammeter') {
+        c.params.range = c.params.range === 0.6 ? 3 : 0.6
+        solveNow()
+      } else if (c.type === 'rheostat') {
+        dragRheostatCircuit.value = c.id
+        cv.value.style.cursor = 'ew-resize'
+      }
+      return
+    }
+    return
+  }
   // 1. 接线柱 → 开始接线（端子可连多根线，并联靠多线汇聚实现）
   const term = hitTerminal(x, y)
   if (term) {
@@ -726,6 +868,17 @@ function onPointerDown(e) {
 // mousemove / mouseup 挂在 window 上，拖动移出画布也能继续
 function onPointerMove(e) {
   const { x, y } = toLocal(e)
+  // 电路图模式：变阻器滑块实时拖动 → 重新求解
+  if (submitted.value) {
+    if (dragRheostatCircuit.value) {
+      const c = comps.value.find((o) => o.id === dragRheostatCircuit.value)
+      if (c) {
+        c.params.slider = Math.min(1, Math.max(0, (x - (c.x - 40)) / 80))
+        solveNow()
+      }
+    }
+    return
+  }
   // 接线中：更新临时终点 + 吸附检测
   if (wiring.value) {
     wiring.value.x = x
@@ -750,6 +903,14 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
+  // 电路图模式：结束变阻器拖动
+  if (submitted.value) {
+    if (dragRheostatCircuit.value) {
+      dragRheostatCircuit.value = null
+      cv.value.style.cursor = 'default'
+    }
+    return
+  }
   // 接线结束：吸附成功则创建导线
   if (wiring.value) {
     const w = wiring.value
@@ -780,6 +941,7 @@ function onPointerUp(e) {
 
 function onKeyDown(e) {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return
+  if (submitted.value) return // 电路图模式只读
   if (e.key === 'Delete' || e.key === 'Backspace') {
     if (selectedWireId.value) {
       removeWire(selectedWireId.value)
@@ -903,10 +1065,23 @@ function loop() {
 let ro = null
 onMounted(() => {
   // 调试钩子（测试用）
-  window.__circuitState = () => ({
-    comps: comps.value.map((c) => ({ id: c.id, type: c.type, x: Math.round(c.x), y: Math.round(c.y), params: { ...c.params }, selected: c.selected })),
+  window.__layoutProbe = () => {
+  try {
+    buildLayout()
+    return { ok: true }
+  } catch (err) {
+    return { __throw: String((err && err.stack) || err) }
+  }
+}
+window.__solveProbe = () => {
+  const r = solveCircuit(comps.value, wires.value, getTerminals)
+  return { ok: r.ok, err: r.err || null, totalI: r.ok ? r.totalI : null, diag: r.diag || null }
+}
+window.__circuitState = () => ({    comps: comps.value.map((c) => ({ id: c.id, type: c.type, x: Math.round(c.x), y: Math.round(c.y), w: c.w, params: { ...c.params }, selected: c.selected, state: { ...c.state } })),
     wires: wires.value.map((w) => ({ id: w.id, a: w.a.termId, b: w.b.termId, style: w.style })),
     wiring: wiring.value ? { from: wiring.value.term.id, snap: wiring.value.snap ? wiring.value.snap.id : null } : null,
+    submitted: submitted.value,
+    solve: solveResult.value ? (solveResult.value.ok ? { ok: true, totalI: solveResult.value.totalI, meters: [...solveResult.value.meters.entries()].map(([k, v]) => [k, v.reading]), bulbs: [...solveResult.value.bulbStates.entries()].map(([k, v]) => [k, v]) } : { ok: false, err: solveResult.value.err }) : null,
     cvRect: (() => { const r = cv.value.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height } })()
   })
   // 预览图
@@ -1318,6 +1493,65 @@ onBeforeUnmount(() => {
 
         .rep-line {
           color: #991b1b;
+        }
+      }
+    }
+
+    .solve-panel {
+      font-size: 12px;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      line-height: 1.7;
+
+      .sp-title {
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+
+      .sp-line {
+        color: #475569;
+        margin-bottom: 6px;
+
+        b {
+          color: #2563eb;
+        }
+      }
+
+      .sp-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 11px;
+
+        th, td {
+          border: 1px solid #e2e8f0;
+          padding: 3px 4px;
+          text-align: center;
+          color: #334155;
+        }
+
+        th {
+          background: #f1f5f9;
+          color: #475569;
+          font-weight: 600;
+        }
+      }
+
+      &.ok {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+
+        .sp-title {
+          color: #15803d;
+        }
+      }
+
+      &.bad {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+
+        .sp-title {
+          color: #b91c1c;
         }
       }
     }

@@ -477,6 +477,7 @@ function drawMeter(ctx, comp, letter, label) {
   // 指针（M1 指向 0；M4 按读数转动）
   const reading = comp.state.reading || 0
   const rangeMax = comp.state.rangeMax || range
+  const over = comp.state.over
   const frac = Math.min(1, Math.max(0, reading / rangeMax))
   const ang = Math.PI * 0.75 + frac * Math.PI * 1.5
   ctx.strokeStyle = COLORS.red
@@ -485,6 +486,19 @@ function drawMeter(ctx, comp, letter, label) {
   ctx.moveTo(0, -4)
   ctx.lineTo(Math.cos(ang) * (r - 6), -4 + Math.sin(ang) * (r - 6))
   ctx.stroke()
+  // 超量程：红圈 + 警示
+  if (over) {
+    ctx.strokeStyle = COLORS.red
+    ctx.lineWidth = 2.6
+    ctx.beginPath()
+    ctx.arc(0, -4, r + 3, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.fillStyle = COLORS.red
+    ctx.font = 'bold 11px "Microsoft YaHei", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('超量程', 0, -4 - r - 8)
+  }
   // 字母
   ctx.fillStyle = COLORS.line
   ctx.font = 'bold 15px "Microsoft YaHei", sans-serif'
