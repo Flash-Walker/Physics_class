@@ -12,6 +12,9 @@ import { refractionConfig } from './experiments/optics/refraction.js'
 import { convexLensConfig } from './experiments/optics/convex-lens.js'
 import { dispersionConfig } from './experiments/optics/dispersion.js'
 import { soundWaveConfig } from './experiments/acoustics/sound-wave.js'
+import { circuitLabConfig } from './experiments/electricity/circuit-lab.js'
+import { echoRangingConfig } from './experiments/acoustics/echo-ranging.js'
+import { circuitLabConfig } from './experiments/electricity/circuit-lab.js'
 
 export const experimentConfigs = {
   'mechanics/meeting': meetingConfig,
@@ -30,7 +33,9 @@ export const experimentConfigs = {
   'optics/dispersion': dispersionConfig,
   // 声学实验
   'acoustics/sound-wave': soundWaveConfig,
-  'acoustics/echo-ranging': echoRangingConfig
+  'acoustics/echo-ranging': echoRangingConfig,
+  // 电学实验
+  'electricity/circuit-lab': circuitLabConfig
   // 后续实验逐个添加，例如：
   // 'mechanics/buoyancy': buoyancyConfig
 }

@@ -70,7 +70,12 @@ const chapterData = {
       { id: 'dispersion', num: '06', name: '光的色散', description: '白光经三棱镜分解为七色光：不同色光折射率不同', status: 'done' }
     ]
   },
-  electricity: { title: '电学', experiments: [] }
+  electricity: {
+    title: '电学',
+    experiments: [
+      { id: 'circuit-lab', num: 1, name: '电路搭建与欧姆定律', description: '自由搭建电路：电池、灯泡、电阻、滑动变阻器、电表与开关，验证欧姆定律', status: 'done' }
+    ]
+  }
 }
 
 // 根据路由参数获取当前章节数据

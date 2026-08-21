@@ -125,7 +125,7 @@ const chapterList = [
     icon: '⚡',
     title: '电学',
     description: '串并联电路、欧姆定律、电功率与焦耳定律实验',
-    count: 7
+    count: 1
   }
 ]
 </script>

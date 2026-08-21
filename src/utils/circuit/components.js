@@ -1,0 +1,668 @@
+// ============================================================
+// 电路实验 - 元件模型与绘制
+// 元件实例: { id, type, x, y, params, state, selected }
+//   params: 用户可编辑参数（电压/阻值/额定值/开关状态等）
+//   state:  仿真显示状态（灯泡亮度、电表读数等，M4 填充）
+// ============================================================
+
+export const COLORS = {
+  line: '#1e293b',       // 元件轮廓/导线
+  term: '#475569',       // 接线柱边框
+  red: '#dc2626',
+  blue: '#2563eb',
+  orange: '#f59e0b',
+  amber: '#fbbf24',
+  dim: '#94a3b8'
+}
+
+// ---------- 灯泡五态 ----------
+export const BULB_STATES = {
+  off:    { name: '灭',   filament: '#94a3b8', glow: 0.0,  glowR: 0 },
+  dim:    { name: '微亮', filament: '#fbbf24', glow: 0.14, glowR: 26 },
+  on:     { name: '亮',   filament: '#f59e0b', glow: 0.32, glowR: 36 },
+  bright: { name: '超亮', filament: '#fff7ed', glow: 0.6,  glowR: 48 },
+  burnt:  { name: '损坏', filament: '#475569', glow: 0.0,  glowR: 0 }
+}
+
+let idCounter = 0
+export function nextId() {
+  return 'c' + (++idCounter)
+}
+
+// ---------- 元件类型注册表 ----------
+export const COMPONENT_TYPES = {
+  battery: {
+    name: '电池',
+    w: 96, h: 52,
+    defaultParams: { voltage: 1.5 },
+    terminals: [
+      { label: '-', dx: -44, dy: 0, ldx: -10, ldy: 8 },
+      { label: '+', dx: 44, dy: 0, ldx: 4, ldy: 8 }
+    ],
+    draw: drawBattery
+  },
+  batteryBox: {
+    name: '电池盒',
+    w: 0, h: 56, // w 由 cells 决定，见 createComponent
+    defaultParams: { cells: 1, loaded: true },
+    terminals: [
+      { label: '-', dx: -52, dy: 0, ldx: -12, ldy: 8 },
+      { label: '+', dx: 52, dy: 0, ldx: 4, ldy: 8 }
+    ],
+    draw: drawBatteryBox
+  },
+  bulb: {
+    name: '小灯泡',
+    w: 76, h: 52,
+    defaultParams: { ratedV: 2.5, ratedI: 0.3 },
+    terminals: [
+      { label: '', dx: -36, dy: 0, ldx: -8, ldy: 8 },
+      { label: '', dx: 36, dy: 0, ldx: 2, ldy: 8 }
+    ],
+    draw: drawBulb
+  },
+  resistor: {
+    name: '电阻',
+    w: 84, h: 44,
+    defaultParams: { resistance: 10 },
+    terminals: [
+      { label: '', dx: -40, dy: 0, ldx: -8, ldy: 8 },
+      { label: '', dx: 40, dy: 0, ldx: 2, ldy: 8 }
+    ],
+    draw: drawResistor
+  },
+  voltmeter: {
+    name: '电压表',
+    w: 84, h: 64,
+    defaultParams: { range: 3 },
+    terminals: [
+      { label: '-', dx: -40, dy: 0, ldx: -10, ldy: 8 },
+      { label: '+', dx: 40, dy: 0, ldx: 4, ldy: 8 }
+    ],
+    draw: (ctx, c) => drawMeter(ctx, c, 'V', '电压表')
+  },
+  ammeter: {
+    name: '电流表',
+    w: 84, h: 64,
+    defaultParams: { range: 0.6 },
+    terminals: [
+      { label: '-', dx: -40, dy: 0, ldx: -10, ldy: 8 },
+      { label: '+', dx: 40, dy: 0, ldx: 4, ldy: 8 }
+    ],
+    draw: (ctx, c) => drawMeter(ctx, c, 'A', '电流表')
+  },
+  rheostat: {
+    name: '滑动变阻器',
+    w: 132, h: 84,
+    defaultParams: { maxR: 20, slider: 0.5 },
+    terminals: [
+      { label: 'C', dx: -46, dy: -38, ldx: -6, ldy: -6 },
+      { label: 'D', dx: 46, dy: -38, ldx: 2, ldy: -6 },
+      { label: 'A', dx: -46, dy: 38, ldx: -6, ldy: 8 },
+      { label: 'B', dx: 46, dy: 38, ldx: 2, ldy: 8 }
+    ],
+    draw: drawRheostat
+  },
+  switch: {
+    name: '单刀开关',
+    w: 88, h: 48,
+    defaultParams: { closed: false },
+    terminals: [
+      { label: '', dx: -40, dy: 0, ldx: -8, ldy: 8 },
+      { label: '', dx: 40, dy: 0, ldx: 2, ldy: 8 }
+    ],
+    draw: drawSwitch
+  },
+  switch2: {
+    name: '单刀双掷开关',
+    w: 116, h: 72,
+    defaultParams: { position: 'up' },
+    terminals: [
+      { label: '', dx: -52, dy: 0, ldx: -10, ldy: 8 },
+      { label: '', dx: 52, dy: -24, ldx: 2, ldy: -6 },
+      { label: '', dx: 52, dy: 24, ldx: 2, ldy: 8 }
+    ],
+    draw: drawSwitch2
+  }
+}
+
+// 器材栏顺序
+export const PART_LIST = ['battery', 'batteryBox', 'bulb', 'resistor', 'voltmeter', 'ammeter', 'rheostat', 'switch', 'switch2']
+
+// ---------- 工厂 ----------
+export function createComponent(type, extra = {}) {
+  const def = COMPONENT_TYPES[type]
+  let w = def.w
+  if (type === 'batteryBox') {
+    const cells = extra.cells || def.defaultParams.cells
+    w = 80 + cells * 60 // 单节140 / 双节200 / 四节320
+  }
+  return {
+    id: nextId(),
+    type,
+    x: 0,
+    y: 0,
+    w,
+    h: def.h,
+    params: { ...def.defaultParams, ...extra },
+    state: {},
+    selected: false
+  }
+}
+
+export function getTypeDef(comp) {
+  return COMPONENT_TYPES[comp.type]
+}
+
+// 接线柱全局坐标
+export function getTerminals(comp) {
+  const def = COMPONENT_TYPES[comp.type]
+  let terms = def.terminals
+  // 电池盒宽度随节数变化，接线柱贴在盒体两端
+  if (comp.type === 'batteryBox') {
+    const hw = comp.w / 2 - 10
+    terms = [
+      { label: '-', dx: -hw, dy: 0, ldx: -12, ldy: 8 },
+      { label: '+', dx: hw, dy: 0, ldx: 4, ldy: 8 }
+    ]
+  }
+  return terms.map((t) => ({
+    id: comp.id + ':' + t.label,
+    label: t.label,
+    x: comp.x + t.dx,
+    y: comp.y + t.dy,
+    compId: comp.id,
+    ldx: t.ldx,
+    ldy: t.ldy
+  }))
+}
+
+// 元件包围盒（用于命中检测与选中框）
+export function getBounds(comp) {
+  return { x: comp.x - comp.w / 2, y: comp.y - comp.h / 2, w: comp.w, h: comp.h }
+}
+
+// 命中检测：点是否在元件上
+export function hitComponent(comp, px, py) {
+  const b = getBounds(comp)
+  return px >= b.x - 6 && px <= b.x + b.w + 6 && py >= b.y - 6 && py <= b.y + b.h + 6
+}
+
+// ---------- 通用绘制 ----------
+function drawTerminal(ctx, x, y, label, ldx, ldy) {
+  ctx.save()
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = COLORS.term
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.arc(x, y, 5, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  if (label) {
+    ctx.fillStyle = COLORS.term
+    ctx.font = '11px "Microsoft YaHei", sans-serif'
+    ctx.textAlign = ldx < 0 ? 'right' : 'left'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(label, x + ldx, y + ldy)
+  }
+  ctx.restore()
+}
+
+export function drawComponent(ctx, comp) {
+  const def = COMPONENT_TYPES[comp.type]
+  ctx.save()
+  ctx.translate(comp.x, comp.y)
+  def.draw(ctx, comp)
+  ctx.restore()
+
+  // 接线柱
+  const terms = getTerminals(comp)
+  for (const t of terms) {
+    const td = def.terminals.find((x) => x.label === t.label)
+    drawTerminal(ctx, t.x, t.y, t.label, td ? td.ldx : -8, td ? td.ldy : 8)
+  }
+
+  // 选中框
+  if (comp.selected) {
+    const b = getBounds(comp)
+    ctx.save()
+    ctx.strokeStyle = COLORS.blue
+    ctx.lineWidth = 1.4
+    ctx.setLineDash([6, 4])
+    ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20)
+    ctx.restore()
+  }
+}
+
+// ---------- 电池 ----------
+function drawBattery(ctx, comp) {
+  const v = comp.params.voltage
+  ctx.strokeStyle = COLORS.line
+  ctx.fillStyle = COLORS.line
+  ctx.lineWidth = 2.4
+  // 正极长竖线
+  ctx.beginPath()
+  ctx.moveTo(16, -14)
+  ctx.lineTo(16, 14)
+  ctx.stroke()
+  // 负极短粗竖线
+  ctx.lineWidth = 5
+  ctx.beginPath()
+  ctx.moveTo(-16, -9)
+  ctx.lineTo(-16, 9)
+  ctx.stroke()
+  // 中部细线连接
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-16, 0)
+  ctx.lineTo(16, 0)
+  ctx.stroke()
+  // 标注电压
+  ctx.fillStyle = COLORS.red
+  ctx.font = 'bold 12px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(v + 'V', 0, 24)
+}
+
+// ---------- 电池盒 ----------
+function drawBatteryBox(ctx, comp) {
+  const cells = comp.params.cells
+  const loaded = comp.params.loaded
+  const w = comp.w
+  const half = w / 2
+  // 盒体
+  ctx.save()
+  const grad = ctx.createLinearGradient(0, -comp.h / 2, 0, comp.h / 2)
+  grad.addColorStop(0, loaded ? '#fef3c7' : '#f1f5f9')
+  grad.addColorStop(1, loaded ? '#fde68a' : '#e2e8f0')
+  ctx.fillStyle = grad
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.roundRect(-half + 6, -comp.h / 2 + 4, w - 12, comp.h - 8, 5)
+  ctx.fill()
+  ctx.stroke()
+  // 电池槽与电池
+  const cellW = 44
+  const gap = 8
+  const total = cells * cellW + (cells - 1) * gap
+  let cx = -total / 2 + cellW / 2
+  for (let i = 0; i < cells; i++) {
+    if (loaded) {
+      // 电池：矩形 + 正极帽
+      ctx.fillStyle = '#334155'
+      ctx.beginPath()
+      ctx.roundRect(cx - cellW / 2, -10, cellW, 20, 3)
+      ctx.fill()
+      ctx.fillStyle = '#f59e0b'
+      ctx.beginPath()
+      ctx.roundRect(cx + cellW / 2 - 8, -8, 8, 16, 2)
+      ctx.fill()
+      // 正负极标记
+      ctx.fillStyle = '#f8fafc'
+      ctx.font = '9px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('+', cx + cellW / 2 - 4, 0)
+      ctx.fillText('−', cx - cellW / 2 + 4, 0)
+    } else {
+      // 空槽
+      ctx.strokeStyle = '#cbd5e1'
+      ctx.lineWidth = 1.4
+      ctx.setLineDash([4, 3])
+      ctx.beginPath()
+      ctx.roundRect(cx - cellW / 2, -10, cellW, 20, 3)
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+    cx += cellW + gap
+  }
+  // 电压标注
+  ctx.fillStyle = loaded ? COLORS.red : COLORS.dim
+  ctx.font = 'bold 12px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(loaded ? cells * 1.5 + 'V' : '未装电池', 0, comp.h / 2 - 10)
+  ctx.restore()
+}
+
+// ---------- 小灯泡（五态） ----------
+function drawBulb(ctx, comp) {
+  const st = comp.state.bulbState || 'off'
+  const s = BULB_STATES[st] || BULB_STATES.off
+  const r = 16
+  // 引线
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-36, 0)
+  ctx.lineTo(-r, 0)
+  ctx.moveTo(36, 0)
+  ctx.lineTo(r, 0)
+  ctx.stroke()
+  // 光晕（亮态）
+  if (s.glow > 0) {
+    const g = ctx.createRadialGradient(0, -2, 2, 0, -2, s.glowR)
+    g.addColorStop(0, 'rgba(255, 200, 60, ' + s.glow + ')')
+    g.addColorStop(1, 'rgba(255, 200, 60, 0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(0, -2, s.glowR, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  // 玻璃泡
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.arc(0, 0, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // 灯丝（V 形）
+  ctx.strokeStyle = s.filament
+  ctx.lineWidth = 2.2
+  ctx.beginPath()
+  if (st === 'burnt') {
+    // 断裂灯丝
+    ctx.moveTo(-8, 10)
+    ctx.lineTo(-2, 0)
+    ctx.moveTo(-2, 0)
+    ctx.lineTo(2, -6)
+    ctx.moveTo(8, 10)
+    ctx.lineTo(3, 2)
+    // 裂纹
+    ctx.strokeStyle = '#7c2d12'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(-10, -8)
+    ctx.lineTo(-5, -3)
+    ctx.lineTo(-7, 2)
+    ctx.moveTo(8, -10)
+    ctx.lineTo(4, -4)
+    ctx.stroke()
+    // 底部焦黑
+    ctx.fillStyle = 'rgba(51,65,85,0.5)'
+    ctx.beginPath()
+    ctx.arc(0, 0, r - 2, 0.4, Math.PI - 0.4)
+    ctx.fill()
+  } else {
+    ctx.moveTo(-8, 10)
+    ctx.lineTo(0, -6)
+    ctx.lineTo(8, 10)
+    ctx.stroke()
+  }
+  // 高光
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)'
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.arc(-5, -5, 8, Math.PI * 0.9, Math.PI * 1.4)
+  ctx.stroke()
+  // 额定值标注
+  ctx.fillStyle = COLORS.dim
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(comp.params.ratedV + 'V ' + comp.params.ratedI + 'A', 0, comp.h / 2 - 12)
+}
+
+// ---------- 电阻 ----------
+function drawResistor(ctx, comp) {
+  // 引线
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-40, 0)
+  ctx.lineTo(-20, 0)
+  ctx.moveTo(40, 0)
+  ctx.lineTo(20, 0)
+  ctx.stroke()
+  // 矩形电阻体（人教版符号）
+  ctx.fillStyle = '#fff'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.rect(-20, -8, 40, 16)
+  ctx.fill()
+  ctx.stroke()
+  // 阻值标注
+  ctx.fillStyle = COLORS.blue
+  ctx.font = 'bold 11px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(comp.params.resistance + 'Ω', 0, comp.h / 2 - 12)
+}
+
+// ---------- 电表（电压表/电流表） ----------
+function drawMeter(ctx, comp, letter, label) {
+  const range = comp.params.range
+  const r = 20
+  // 引线
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-40, 0)
+  ctx.lineTo(-r - 4, 0)
+  ctx.moveTo(40, 0)
+  ctx.lineTo(r + 4, 0)
+  ctx.stroke()
+  // 表壳
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.arc(0, -4, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // 刻度弧（左下 0 → 右下满量程）
+  ctx.strokeStyle = '#94a3b8'
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  ctx.arc(0, -4, r - 5, Math.PI * 0.75, Math.PI * 2.25)
+  ctx.stroke()
+  // 刻度线
+  for (let i = 0; i <= 5; i++) {
+    const ang = Math.PI * 0.75 + (i / 5) * Math.PI * 1.5
+    const x0 = Math.cos(ang) * (r - 7)
+    const y0 = -4 + Math.sin(ang) * (r - 7)
+    const x1 = Math.cos(ang) * (r - 3)
+    const y1 = -4 + Math.sin(ang) * (r - 3)
+    ctx.strokeStyle = i % 5 === 0 ? '#475569' : '#cbd5e1'
+    ctx.lineWidth = i % 5 === 0 ? 1.6 : 1
+    ctx.beginPath()
+    ctx.moveTo(x0, y0)
+    ctx.lineTo(x1, y1)
+    ctx.stroke()
+  }
+  // 指针（M1 指向 0；M4 按读数转动）
+  const reading = comp.state.reading || 0
+  const rangeMax = comp.state.rangeMax || range
+  const frac = Math.min(1, Math.max(0, reading / rangeMax))
+  const ang = Math.PI * 0.75 + frac * Math.PI * 1.5
+  ctx.strokeStyle = COLORS.red
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.moveTo(0, -4)
+  ctx.lineTo(Math.cos(ang) * (r - 6), -4 + Math.sin(ang) * (r - 6))
+  ctx.stroke()
+  // 字母
+  ctx.fillStyle = COLORS.line
+  ctx.font = 'bold 15px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(letter, 0, -4)
+  // 量程标注
+  ctx.fillStyle = COLORS.blue
+  ctx.font = '11px "Microsoft YaHei", sans-serif'
+  ctx.fillText(range + (letter === 'V' ? 'V' : 'A'), 0, 20)
+  ctx.fillStyle = COLORS.dim
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.fillText(label, 0, 33)
+}
+
+// ---------- 滑动变阻器 ----------
+function drawRheostat(ctx, comp) {
+  const maxR = comp.params.maxR
+  const slider = comp.params.slider
+  const sxp = -40 + slider * 80 // 滑块 x
+  // 下方电阻丝
+  ctx.fillStyle = '#e2e8f0'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.rect(-40, -12, 80, 14)
+  ctx.fill()
+  ctx.stroke()
+  // 绕线纹理
+  ctx.strokeStyle = '#94a3b8'
+  ctx.lineWidth = 1
+  for (let x = -38; x <= 38; x += 6) {
+    ctx.beginPath()
+    ctx.moveTo(x, -11)
+    ctx.lineTo(x, 1)
+    ctx.stroke()
+  }
+  // 上方金属杆
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-46, -30)
+  ctx.lineTo(46, -30)
+  ctx.stroke()
+  // C D 引线
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.moveTo(-46, -30)
+  ctx.lineTo(-46, -12)
+  ctx.moveTo(46, -30)
+  ctx.lineTo(46, -12)
+  ctx.stroke()
+  // A B 引线
+  ctx.beginPath()
+  ctx.moveTo(-46, 2)
+  ctx.lineTo(-46, 38)
+  ctx.moveTo(46, 2)
+  ctx.lineTo(46, 38)
+  ctx.stroke()
+  // 滑杆（滑块下方竖线）
+  ctx.strokeStyle = COLORS.orange
+  ctx.lineWidth = 2.4
+  ctx.beginPath()
+  ctx.moveTo(sxp, -30)
+  ctx.lineTo(sxp, -13)
+  ctx.stroke()
+  // 滑块箭头
+  ctx.fillStyle = COLORS.orange
+  ctx.beginPath()
+  ctx.moveTo(sxp - 7, -13)
+  ctx.lineTo(sxp + 7, -13)
+  ctx.lineTo(sxp, -5)
+  ctx.closePath()
+  ctx.fill()
+  // 标注
+  ctx.fillStyle = COLORS.blue
+  ctx.font = 'bold 11px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(maxR + 'Ω', 0, 34)
+  ctx.fillStyle = COLORS.dim
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.fillText('滑动变阻器', 0, 48)
+}
+
+// ---------- 单刀开关 ----------
+function drawSwitch(ctx, comp) {
+  const closed = comp.params.closed
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  // 左接线点引线
+  ctx.beginPath()
+  ctx.moveTo(-40, 0)
+  ctx.lineTo(-14, 0)
+  ctx.stroke()
+  // 右接线点
+  ctx.beginPath()
+  ctx.moveTo(40, 0)
+  ctx.lineTo(14, 0)
+  ctx.stroke()
+  // 刀片
+  ctx.lineWidth = 2.6
+  ctx.beginPath()
+  if (closed) {
+    ctx.moveTo(-14, 0)
+    ctx.lineTo(14, 0)
+  } else {
+    ctx.moveTo(-14, 0)
+    ctx.lineTo(12, -16)
+  }
+  ctx.stroke()
+  // 触点
+  ctx.fillStyle = '#fff'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.6
+  ctx.beginPath()
+  ctx.arc(14, 0, 4, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // 状态标注
+  ctx.fillStyle = closed ? '#16a34a' : COLORS.dim
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(closed ? '闭合' : '断开', 0, comp.h / 2 - 10)
+}
+
+// ---------- 单刀双掷开关 ----------
+function drawSwitch2(ctx, comp) {
+  const pos = comp.params.position // 'up' | 'down'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  // 公共端引线
+  ctx.beginPath()
+  ctx.moveTo(-52, 0)
+  ctx.lineTo(-14, 0)
+  ctx.stroke()
+  // 两掷触点引线
+  ctx.beginPath()
+  ctx.moveTo(52, -24)
+  ctx.lineTo(16, -24)
+  ctx.moveTo(52, 24)
+  ctx.lineTo(16, 24)
+  ctx.stroke()
+  // 触点
+  for (const ty of [-24, 24]) {
+    ctx.fillStyle = '#fff'
+    ctx.strokeStyle = COLORS.line
+    ctx.lineWidth = 1.6
+    ctx.beginPath()
+    ctx.arc(16, ty, 4, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+  // 刀片
+  ctx.lineWidth = 2.6
+  ctx.beginPath()
+  ctx.moveTo(-14, 0)
+  if (pos === 'up') ctx.lineTo(12, -24)
+  else ctx.lineTo(12, 24)
+  ctx.stroke()
+  // 状态标注
+  ctx.fillStyle = COLORS.dim
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(pos === 'up' ? '掷向 ↑' : '掷向 ↓', 0, comp.h / 2 - 8)
+}
+
+// ---------- 器材栏预览 ----------
+export function drawPreview(ctx, type, extra = {}, w = 44, h = 32) {
+  const comp = createComponent(type, extra)
+  const def = COMPONENT_TYPES[type]
+  const scale = Math.min(w / comp.w, h / comp.h)
+  ctx.save()
+  ctx.clearRect(0, 0, w, h)
+  ctx.translate(w / 2, h / 2)
+  ctx.scale(scale, scale)
+  def.draw(ctx, comp)
+  ctx.restore()
+}
