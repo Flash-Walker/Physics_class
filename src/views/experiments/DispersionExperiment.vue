@@ -37,7 +37,7 @@
             把入射角调小到 50° 以内试试。
           </div>
 
-          <p class="control-hint">💡 点「开始」播放动画：白光射入棱镜 → 棱镜内开始分色 → 出射后七色展开。<br />※ 七色真实角度差仅约 1°，为便于观察，出射角度已按比例放大显示（顺序不变：红偏折最小、紫最大）</p>
+          <p class="control-hint">💡 点「开始」播放动画：白光射入棱镜 → 棱镜内开始分色 → 出射后七色展开。<br />※ 两个界面都按斯涅耳定律 n₁sin i = n₂sin r 计算，出射角 e 随入射角 i 实时变化（见右侧数据栏）。<br />※ 七色真实角度差仅约 1°，为便于观察，出射角度已按比例放大显示（顺序不变：红偏折最小、紫最大）</p>
         </div>
       </template>
 
@@ -66,8 +66,39 @@
               </div>
             </div>
             <div class="spectrum-legend">
-              <span>波长 λ</span><span>折射率 n</span><span>速度 v（×10⁸ m/s）</span>
+              <span class="color-dot"></span>
+              <span class="color-name"></span>
+              <span>波长 λ（nm）</span>
+              <span>折射率 n</span>
+              <span>速度 v（×10⁸ m/s）</span>
             </div>
+          </div>
+
+          <div class="data-group">
+            <div class="group-title">📐 实时角度（斯涅耳定律）</div>
+            <div class="angle-table">
+              <div class="angle-row">
+                <span>入射角 i（左面法线）</span>
+                <b>{{ incidentAngle.toFixed(1) }}°</b>
+              </div>
+              <div class="angle-row">
+                <span>左面折射角 r（红光）</span>
+                <b>{{ entryR.toFixed(1) }}°</b>
+              </div>
+              <div class="angle-row">
+                <span>右面出射角 e（红光）</span>
+                <b>{{ redTrace ? redTrace.eOut.toFixed(1) : '—' }}°</b>
+              </div>
+              <div class="angle-row">
+                <span>偏向角 δ = i + e − 60°</span>
+                <b>{{ deviation !== null ? deviation.toFixed(1) : '—' }}°</b>
+              </div>
+              <div class="angle-row">
+                <span>验证 n₁sin i = n₂sin r</span>
+                <b>{{ snellCheck }}</b>
+              </div>
+            </div>
+            <p class="angle-note">两个界面均按斯涅耳定律逐色计算：i 从 35°→65° 时，e 从约 68°→37° 大幅变化；δ 变化较小（38°~45°）是三棱镜的真实特性。仅当 i ≈ 49.5°（最小偏折角）时棱镜内光路对称，出现 i = e。</p>
           </div>
 
           <div class="data-group">
@@ -245,11 +276,12 @@ const traces = computed(() => {
     const hit = raySegmentIntersection(PIn.value.x, PIn.value.y, angleDeg, B, C)
     if (!hit) return { ...c, ok: false }
     const POut = { x: hit.x, y: hit.y }
-    // ③ 右面出射
-    const i2 = angleBetween(dPrism, nBC)
+    // ③ 右面出射（i₂ 相对右面外法线计算，即真实入射角；eOut = 出射角 e）
+    const nBCout = { x: -nBC.x, y: -nBC.y }
+    const i2 = angleBetween(dPrism, nBCout)
     const dOut = refractDir(dPrism, nBC, c.n, 1)
     if (!dOut) return { ...c, ok: false, dPrism, POut }
-    return { ...c, ok: true, dPrism, POut, dOut, i2, r2: refractionAngle(c.n, 1, i2) }
+    return { ...c, ok: true, dPrism, POut, dOut, i2, eOut: refractionAngle(c.n, 1, i2) }
   })
   const oks = raw.filter(t => t.ok)
   if (!oks.length) return raw
@@ -279,6 +311,20 @@ const traces = computed(() => {
 
 // 是否有色光发生全反射（无法出射）
 const totalReflect = computed(() => traces.value.some(t => !t.ok))
+
+// 红光追迹（出射方向未经增强，是真实方向；画布标注与数据面板都用它）
+const redTrace = computed(() => traces.value.find(t => t.name === '红' && t.ok) || null)
+// 红光在左面的折射角 r（斯涅耳定律）
+const entryR = computed(() => refractionAngle(1, COLORS[0].n, incidentAngle.value))
+// 偏向角 δ = i + e − A（A = 60°，等边三棱镜；红光）
+const deviation = computed(() => (redTrace.value ? incidentAngle.value + redTrace.value.eOut - 60 : null))
+// 斯涅耳验证：n₁sin i 与 n₂sin r（左面，红光）
+const snellCheck = computed(() => {
+  if (!redTrace.value) return '—'
+  const lhs = Math.sin(degToRad(incidentAngle.value))
+  const rhs = COLORS[0].n * Math.sin(degToRad(entryR.value))
+  return `${lhs.toFixed(3)} ≈ ${rhs.toFixed(3)} ✓`
+})
 
 // 棱镜内光路平均长度（动画分段用）
 const avgPrismLen = computed(() => {
@@ -326,6 +372,7 @@ const canvasState = computed(() => ({
   totalReflect: totalReflect.value,
   pIn: pIn.value,
   pPrism: pPrism.value,
+  pOutColor0: pOutColor(0),
   engineState: engine.state
 }))
 
@@ -439,10 +486,11 @@ const drawScene = (ctx, state, utils) => {
     ctx.restore()
   })
 
-  // ⑤ 入射角标注（左面法线 ↔ 白光，渐显可省：静态弧线）
+  // ⑤ 入射角标注（入射光线 ↔ 左面法线之间的真实夹角 i）
   if (state.incidentAngle > 0 && state.pIn >= 1) {
-    const a0 = Math.atan2(-beamDir.value.y, -beamDir.value.x) // 光源方向
-    const aN = Math.atan2(nAB.y, nAB.x)
+    const a0 = Math.atan2(state.beamDir.y, state.beamDir.x) // 入射光线方向（指向棱镜）
+    const aN = Math.atan2(nAB.y, nAB.x) // 左面法线（指向棱镜内）
+    const mid = (a0 + aN) / 2
     ctx.save()
     ctx.strokeStyle = '#e8b339'
     ctx.lineWidth = 1.6
@@ -452,7 +500,26 @@ const drawScene = (ctx, state, utils) => {
     ctx.fillStyle = '#e8b339'
     ctx.font = 'bold 12px "Microsoft YaHei"'
     ctx.textAlign = 'center'
-    ctx.fillText(`i = ${state.incidentAngle.toFixed(1)}°`, PIn.x - 38, PIn.y - 26)
+    ctx.fillText(`i = ${state.incidentAngle.toFixed(1)}°`, PIn.x + Math.cos(mid) * 46, PIn.y + Math.sin(mid) * 46 + 5)
+    ctx.restore()
+  }
+
+  // ⑤b 出射角标注（红光出射光线 ↔ 右面外法线；红光方向未经增强，即真实出射角 e）
+  const redT = state.traces.find(t => t.name === '红' && t.ok)
+  if (redT && state.pOutColor0 >= 1) {
+    const aN = Math.atan2(-nBC.y, -nBC.x) // 右面外法线（指向棱镜外）
+    const a1 = Math.atan2(redT.dOut.y, redT.dOut.x)
+    const mid = (aN + a1) / 2
+    ctx.save()
+    ctx.strokeStyle = '#3d9bff'
+    ctx.lineWidth = 1.6
+    ctx.beginPath()
+    ctx.arc(redT.POut.x, redT.POut.y, 30, aN, a1, false)
+    ctx.stroke()
+    ctx.fillStyle = '#3d9bff'
+    ctx.font = 'bold 12px "Microsoft YaHei"'
+    ctx.textAlign = 'center'
+    ctx.fillText(`e = ${redT.eOut.toFixed(1)}°`, redT.POut.x + Math.cos(mid) * 50, redT.POut.y + Math.sin(mid) * 50 + 5)
     ctx.restore()
   }
 
@@ -598,10 +665,15 @@ onUnmounted(() => {
   gap: 4px;
 }
 
-.spectrum-row {
-  display: flex;
-  align-items: center;
+.spectrum-row,
+.spectrum-legend {
+  display: grid;
+  grid-template-columns: 12px 24px 1fr 64px 64px;
   gap: 8px;
+  align-items: center;
+}
+
+.spectrum-row {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.85);
 }
@@ -610,41 +682,72 @@ onUnmounted(() => {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  flex-shrink: 0;
 }
 
 .color-name {
-  width: 24px;
-  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .color-wave {
-  flex: 1;
   color: rgba(255, 255, 255, 0.55);
 }
 
 .color-n {
-  width: 64px;
   text-align: right;
   color: $color-accent;
 }
 
 .color-v {
-  width: 64px;
   text-align: right;
   color: #fff;
 }
 
 .spectrum-legend {
-  display: flex;
-  gap: 8px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   margin-top: 4px;
 
-  span:nth-child(1) { flex: 1; }
-  span:nth-child(2) { width: 64px; text-align: right; }
-  span:nth-child(3) { width: 64px; text-align: right; }
+  .color-dot {
+    visibility: hidden;
+  }
+
+  span:nth-child(4),
+  span:nth-child(5) {
+    text-align: right;
+  }
+}
+
+/* 实时角度表 */
+.angle-table {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.angle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+
+  b {
+    color: $color-accent;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+}
+
+.angle-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.6;
 }
 
 .point-list {
