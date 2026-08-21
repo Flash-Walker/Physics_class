@@ -2,7 +2,20 @@
   <div class="circuit-lab">
     <!-- 顶部工具条 -->
     <div class="toolbar">
-      <span class="hint">💡 点击左侧器材添加元件 · 拖动元件移动 · 单击开关/电池盒切换状态 · 选中后 Delete 或点「删除」移除 · 接线功能开发中</span>
+      <div class="tb-left">
+        <span class="hint">💡 点击器材添加元件 · 拖动元件移动 · 点击接线柱连线 · 单击开关/电池盒切换状态 · 选中后 Delete 删除</span>
+        <div class="wire-styles">
+          <button
+            v-for="s in wireStyles"
+            :key="s.key"
+            class="ws-btn"
+            :class="{ on: wireStyle === s.key }"
+            @click="wireStyle = s.key"
+          >
+            {{ s.name }}
+          </button>
+        </div>
+      </div>
       <button class="clear-btn" @click="clearAll">🗑 清空画布</button>
     </div>
 
@@ -41,6 +54,20 @@
             <span class="comp-param">{{ brief(c) }}</span>
           </li>
           <li v-if="!comps.length" class="list-empty">画布为空，请从左侧添加元件</li>
+        </ul>
+
+        <div class="bar-title">导线（{{ wires.length }}）</div>
+        <ul class="comp-list wire-list">
+          <li
+            v-for="w in wires"
+            :key="w.id"
+            :class="{ active: w.id === selectedWireId }"
+            @click="selectWire(w.id)"
+          >
+            <span class="wire-dot" :style="{ background: wireStyleColor(w.style) }"></span>
+            <span class="comp-name">{{ wireBrief(w) }}</span>
+          </li>
+          <li v-if="!wires.length" class="list-empty">暂无导线，点击接线柱开始连线</li>
         </ul>
 
         <div class="bar-title">参数设置</div>
@@ -125,6 +152,11 @@
 
           <button class="del-btn" @click="removeSelected">🗑 删除该元件</button>
         </div>
+        <div v-else-if="selectedWire" class="param-editor">
+          <div class="p-info">连接：{{ wireBrief(selectedWire) }}</div>
+          <div class="p-info">线型：{{ wireStyleName(selectedWire.style) }}</div>
+          <button class="del-btn" @click="removeWire(selectedWire.id)">🗑 删除该导线</button>
+        </div>
         <div v-else class="no-sel">未选中元件<br />点击画布中的元件或上方清单进行选中</div>
       </aside>
     </div>
@@ -134,14 +166,62 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import {
+  COLORS,
   COMPONENT_TYPES,
   createComponent,
   drawComponent,
   drawPreview,
   getBounds,
   hitComponent,
-  getTerminals
+  getTerminals,
+  wirePath,
+  distToWire
 } from '@/utils/circuit/components.js'
+
+// ---------- 导线 ----------
+const wires = ref([])
+let wireId = 0
+const wireStyle = ref('curve')
+const wireStyles = [
+  { key: 'curve', name: '曲线' },
+  { key: 'ortho', name: '正交' },
+  { key: 'line', name: '直线' }
+]
+const wiring = ref(null) // { term, x, y, snap } 接线中状态
+const selectedWireId = ref(null)
+const selectedWire = computed(() => wires.value.find((w) => w.id === selectedWireId.value) || null)
+
+const wireStyleName = (s) => (wireStyles.find((x) => x.key === s) || {}).name || s
+const wireStyleColor = (s) => ({ curve: '#2563eb', ortho: '#7c3aed', line: '#059669' }[s] || '#64748b')
+const wireBrief = (w) => {
+  const a = comps.value.find((c) => c.id === w.a.compId)
+  const b = comps.value.find((c) => c.id === w.b.compId)
+  const lbl = (id) => {
+    const p = id.split(':')[1] || ''
+    return /^t\d+$/.test(p) ? '' : p
+  }
+  return (a ? nameOf(a.type) : '?') + (lbl(w.a.termId) ? '(' + lbl(w.a.termId) + ')' : '') +
+    ' ↔ ' + (b ? nameOf(b.type) : '?') + (lbl(w.b.termId) ? '(' + lbl(w.b.termId) + ')' : '')
+}
+function selectWire(id) {
+  comps.value.forEach((c) => (c.selected = false))
+  selectedWireId.value = id
+}
+function removeWire(id) {
+  wires.value = wires.value.filter((w) => w.id !== id)
+  if (selectedWireId.value === id) selectedWireId.value = null
+}
+// 断开某端子上的所有导线
+function disconnectTerm(termId) {
+  wires.value = wires.value.filter((w) => w.a.termId !== termId && w.b.termId !== termId)
+}
+// 端子实时坐标
+function termPos(ep) {
+  const c = comps.value.find((x) => x.id === ep.compId)
+  if (!c) return null
+  const t = getTerminals(c).find((x) => x.id === ep.termId)
+  return t ? { x: t.x, y: t.y } : null
+}
 
 // ---------- 器材栏 ----------
 const partButtons = [
@@ -235,10 +315,15 @@ function removeSelected() {
   const sel = selectedComp.value
   if (!sel) return
   comps.value = comps.value.filter((c) => c.id !== sel.id)
+  // 联动删除连接在该元件上的导线
+  wires.value = wires.value.filter((w) => w.a.compId !== sel.id && w.b.compId !== sel.id)
 }
 
 function clearAll() {
   comps.value = []
+  wires.value = []
+  selectedWireId.value = null
+  wiring.value = null
 }
 
 function toggleLoaded() {
@@ -270,6 +355,28 @@ function topHit(x, y) {
   return null
 }
 
+// 命中接线柱（优先于元件，radius 为命中半径）
+function hitTerminal(x, y, radius = 14) {
+  for (const c of comps.value) {
+    for (const t of getTerminals(c)) {
+      if (Math.hypot(x - t.x, y - t.y) <= radius) return t
+    }
+  }
+  return null
+}
+
+// 命中导线
+function hitWire(x, y) {
+  for (let i = wires.value.length - 1; i >= 0; i--) {
+    const w = wires.value[i]
+    const a = termPos(w.a)
+    const b = termPos(w.b)
+    if (!a || !b) continue
+    if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style) < 7) return w
+  }
+  return null
+}
+
 // 命中变阻器滑块（局部坐标 sxp ∈ [-40,40], 滑块头部 y≈-9）
 function hitSlider(c, x, y) {
   if (c.type !== 'rheostat') return null
@@ -283,7 +390,17 @@ function hitSlider(c, x, y) {
 function onPointerDown(e) {
   if (e.button !== 0) return
   const { x, y } = toLocal(e)
-  // 变阻器滑块优先
+  // 1. 接线柱 → 开始接线（断开该端子旧线）
+  const term = hitTerminal(x, y)
+  if (term) {
+    disconnectTerm(term.id)
+    comps.value.forEach((c) => (c.selected = false))
+    selectedWireId.value = null
+    wiring.value = { term, x, y, snap: null }
+    cv.value.style.cursor = 'crosshair'
+    return
+  }
+  // 2. 变阻器滑块优先
   for (let i = comps.value.length - 1; i >= 0; i--) {
     const c = comps.value[i]
     if (hitSlider(c, x, y)) {
@@ -292,19 +409,37 @@ function onPointerDown(e) {
       return
     }
   }
+  // 3. 元件优先于导线（避免导线横穿元件时元件无法拖动）
   const hit = topHit(x, y)
   if (hit) {
     comps.value.forEach((c) => (c.selected = c.id === hit.id))
     drag = { mode: 'move', comp: hit, offX: x - hit.x, offY: y - hit.y, moved: false, downX: x, downY: y }
-  } else {
-    comps.value.forEach((c) => (c.selected = false))
+    return
   }
+  // 4. 导线 → 选中（导线在元件下层，只点露出部分）
+  const wire = hitWire(x, y)
+  if (wire) {
+    comps.value.forEach((c) => (c.selected = false))
+    selectedWireId.value = wire.id
+    return
+  }
+  comps.value.forEach((c) => (c.selected = false))
+  selectedWireId.value = null
+  wiring.value = null
 }
 
 // mousemove / mouseup 挂在 window 上，拖动移出画布也能继续
 function onPointerMove(e) {
-  if (!drag) return
   const { x, y } = toLocal(e)
+  // 接线中：更新临时终点 + 吸附检测
+  if (wiring.value) {
+    wiring.value.x = x
+    wiring.value.y = y
+    const snap = hitTerminal(x, y, 16)
+    wiring.value.snap = snap && snap.id !== wiring.value.term.id ? snap : null
+    return
+  }
+  if (!drag) return
   if (drag.mode === 'move') {
     if (!drag.moved) {
       if (Math.hypot(x - drag.downX, y - drag.downY) < 4) return
@@ -320,6 +455,23 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
+  // 接线结束：吸附成功则创建导线
+  if (wiring.value) {
+    const w = wiring.value
+    wiring.value = null
+    cv.value.style.cursor = 'default'
+    if (w.snap) {
+      disconnectTerm(w.snap.id)
+      wires.value.push({
+        id: 'w' + (++wireId),
+        a: { compId: w.term.compId, termId: w.term.id },
+        b: { compId: w.snap.compId, termId: w.snap.id },
+        style: wireStyle.value
+      })
+      selectedWireId.value = null
+    }
+    return
+  }
   if (!drag) return
   const wasMove = drag.mode === 'move' && drag.moved
   const comp = drag.comp
@@ -335,6 +487,10 @@ function onPointerUp(e) {
 function onKeyDown(e) {
   if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return
   if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedWireId.value) {
+      removeWire(selectedWireId.value)
+      return
+    }
     removeSelected()
   }
 }
@@ -369,9 +525,69 @@ function draw() {
   }
   ctx.stroke()
 
+  // 导线（元件下层，选中高亮）
+  for (const w of wires.value) {
+    const a = termPos(w.a)
+    const b = termPos(w.b)
+    if (!a || !b) continue
+    const sel = w.id === selectedWireId.value
+    ctx.strokeStyle = sel ? COLORS.blue : COLORS.line
+    ctx.lineWidth = sel ? 3.2 : 2.2
+    ctx.lineCap = 'round'
+    wirePath(ctx, a.x, a.y, b.x, b.y, w.style)
+    ctx.stroke()
+    ctx.lineCap = 'butt'
+  }
+
   // 元件
   for (const c of comps.value) {
     drawComponent(ctx, c)
+  }
+
+  // 已连接端子小圆点标记
+  ctx.fillStyle = COLORS.blue
+  for (const c of comps.value) {
+    for (const t of getTerminals(c)) {
+      if (wires.value.some((w) => w.a.termId === t.id || w.b.termId === t.id)) {
+        ctx.beginPath()
+        ctx.arc(t.x, t.y, 2.4, 0, Math.PI * 2)
+        ctx.fill()
+      }
+    }
+  }
+
+  // 接线中：起点高亮 + 吸附目标高亮 + 临时线
+  if (wiring.value) {
+    const w = wiring.value
+    const t = w.term
+    ctx.save()
+    // 起点
+    ctx.fillStyle = COLORS.orange
+    ctx.beginPath()
+    ctx.arc(t.x, t.y, 8, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    // 吸附目标
+    if (w.snap) {
+      ctx.fillStyle = '#16a34a'
+      ctx.beginPath()
+      ctx.arc(w.snap.x, w.snap.y, 8, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    }
+    // 临时线（虚线）
+    ctx.strokeStyle = COLORS.orange
+    ctx.lineWidth = 2
+    ctx.setLineDash([6, 4])
+    const ex = w.snap ? w.snap.x : w.x
+    const ey = w.snap ? w.snap.y : w.y
+    wirePath(ctx, t.x, t.y, ex, ey, wireStyle.value)
+    ctx.stroke()
+    ctx.restore()
   }
   ctx.restore()
 }
@@ -387,6 +603,8 @@ onMounted(() => {
   // 调试钩子（测试用）
   window.__circuitState = () => ({
     comps: comps.value.map((c) => ({ id: c.id, type: c.type, x: Math.round(c.x), y: Math.round(c.y), params: { ...c.params }, selected: c.selected })),
+    wires: wires.value.map((w) => ({ id: w.id, a: w.a.termId, b: w.b.termId, style: w.style })),
+    wiring: wiring.value ? { from: wiring.value.term.id, snap: wiring.value.snap ? wiring.value.snap.id : null } : null,
     cvRect: (() => { const r = cv.value.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height } })()
   })
   // 预览图
@@ -439,9 +657,46 @@ onBeforeUnmount(() => {
     background: #fff;
     border-bottom: 1px solid #e2e8f0;
 
+    .tb-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
     .hint {
       font-size: 12px;
       color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wire-styles {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+
+      .ws-btn {
+        padding: 4px 10px;
+        font-size: 12px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #475569;
+        cursor: pointer;
+
+        &:hover {
+          border-color: #2563eb;
+          color: #2563eb;
+        }
+
+        &.on {
+          background: #2563eb;
+          color: #fff;
+          border-color: #2563eb;
+        }
+      }
     }
 
     .clear-btn {
@@ -452,6 +707,7 @@ onBeforeUnmount(() => {
       background: #fff;
       color: #ef4444;
       cursor: pointer;
+      flex-shrink: 0;
 
       &:hover {
         background: #fef2f2;
@@ -594,6 +850,17 @@ onBeforeUnmount(() => {
         padding: 10px;
         text-align: center;
         cursor: default;
+      }
+    }
+
+    .wire-list {
+      max-height: 140px;
+
+      .wire-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
       }
     }
 

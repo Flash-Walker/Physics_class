@@ -166,8 +166,8 @@ export function getTerminals(comp) {
       { label: '+', dx: hw, dy: 0, ldx: 4, ldy: 8 }
     ]
   }
-  return terms.map((t) => ({
-    id: comp.id + ':' + t.label,
+  return terms.map((t, i) => ({
+    id: comp.id + ':' + (t.label || 't' + i),
     label: t.label,
     x: comp.x + t.dx,
     y: comp.y + t.dy,
@@ -652,6 +652,90 @@ function drawSwitch2(ctx, comp) {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillText(pos === 'up' ? '掷向 ↑' : '掷向 ↓', 0, comp.h / 2 - 8)
+}
+
+// ---------- 导线路径 ----------
+// style: 'line' 直线 | 'curve' 圆滑贝塞尔 | 'ortho' 正交直角（转角圆角）
+export function wirePath(ctx, x1, y1, x2, y2, style) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const len = Math.hypot(dx, dy)
+  ctx.beginPath()
+  ctx.moveTo(x1, y1)
+  if (style === 'line' || len < 2) {
+    ctx.lineTo(x2, y2)
+  } else if (style === 'curve') {
+    // 控制点：中点沿法线方向偏移，弯曲幅度随长度增长（上限 48）
+    const mx = (x1 + x2) / 2
+    const my = (y1 + y2) / 2
+    const nx = -dy / len
+    const ny = dx / len
+    const bend = Math.min(48, len * 0.22)
+    ctx.quadraticCurveTo(mx + nx * bend, my + ny * bend, x2, y2)
+  } else {
+    // ortho：水平优先走线，转角处圆角
+    if (Math.abs(dx) < 2 || Math.abs(dy) < 2) {
+      ctx.lineTo(x2, y2)
+      return
+    }
+    const mx = x2
+    const my = y1
+    const r = Math.max(0, Math.min(10, Math.abs(dx) / 2, Math.abs(dy) / 2))
+    const sx = dx > 0 ? 1 : -1
+    const sy = dy > 0 ? 1 : -1
+    if (r >= 4) {
+      ctx.lineTo(mx - sx * r, my)
+      ctx.quadraticCurveTo(mx, my, mx, my + sy * r)
+      ctx.lineTo(x2, y2)
+    } else {
+      ctx.lineTo(mx, my)
+      ctx.lineTo(x2, y2)
+    }
+  }
+}
+
+// 点到线段距离（导线命中检测用）
+export function distToSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const l2 = dx * dx + dy * dy
+  if (l2 < 1e-6) return Math.hypot(px - x1, py - y1)
+  let t = ((px - x1) * dx + (py - y1) * dy) / l2
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
+}
+
+// 点到导线距离（按线型分别计算）
+export function distToWire(px, py, ax, ay, bx, by, style) {
+  if (style === 'line') return distToSeg(px, py, ax, ay, bx, by)
+  if (style === 'ortho') {
+    const d1 = distToSeg(px, py, ax, ay, bx, ay)
+    const d2 = distToSeg(px, py, bx, ay, bx, by)
+    return Math.min(d1, d2)
+  }
+  // curve：二次贝塞尔采样 24 段
+  const len = Math.hypot(bx - ax, by - ay) || 1
+  const mx = (ax + bx) / 2
+  const my = (ay + by) / 2
+  const nx = -(by - ay) / len
+  const ny = (bx - ax) / len
+  const bend = Math.min(48, len * 0.22)
+  const cx = mx + nx * bend
+  const cy = my + ny * bend
+  let min = Infinity
+  let px0 = ax
+  let py0 = ay
+  const N = 24
+  for (let i = 1; i <= N; i++) {
+    const t = i / N
+    const qx = (1 - t) * (1 - t) * ax + 2 * (1 - t) * t * cx + t * t * bx
+    const qy = (1 - t) * (1 - t) * ay + 2 * (1 - t) * t * cy + t * t * by
+    const d = distToSeg(px, py, px0, py0, qx, qy)
+    if (d < min) min = d
+    px0 = qx
+    py0 = qy
+  }
+  return min
 }
 
 // ---------- 器材栏预览 ----------
