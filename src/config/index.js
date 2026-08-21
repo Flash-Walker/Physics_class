@@ -29,11 +29,14 @@ export const experimentConfigs = {
   'optics/convex-lens': convexLensConfig,
   'optics/dispersion': dispersionConfig,
   // 声学实验
-  'acoustics/sound-wave': soundWaveConfig
+  'acoustics/sound-wave': soundWaveConfig,
+  'acoustics/echo-ranging': echoRangingConfig
   // 后续实验逐个添加，例如：
   // 'mechanics/buoyancy': buoyancyConfig
 }
 
 export function getExperimentConfig(chapterId, expId) {
   return experimentConfigs[`${chapterId}/${expId}`] || null
+}
+erId}/${expId}`] || null
 }

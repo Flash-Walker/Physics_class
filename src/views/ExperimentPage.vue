@@ -35,7 +35,8 @@ const experimentComponents = {
   'optics/convex-lens': defineAsyncComponent(() => import('./experiments/ConvexLensExperiment.vue')),
   'optics/dispersion': defineAsyncComponent(() => import('./experiments/DispersionExperiment.vue')),
   // 声学实验
-  'acoustics/sound-wave': defineAsyncComponent(() => import('./experiments/SoundWaveExperiment.vue'))
+  'acoustics/sound-wave': defineAsyncComponent(() => import('./experiments/SoundWaveExperiment.vue')),
+  'acoustics/echo-ranging': defineAsyncComponent(() => import('./experiments/EchoRangingExperiment.vue'))
 }
 
 // 当前实验组件
