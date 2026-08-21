@@ -301,19 +301,22 @@ const curT = ref(0)            // 动画进行中的实时时间读数
 const busy = computed(() => runState.value !== 'idle')
 
 // 各场景慢放系数：把真实传播时间放慢到便于观察的动画时长
-const SLOW = { echo: 4, sonar: 4, radar: 300 }
+const SLOW = { echo: 2, sonar: 4, radar: 300 }
+const DUR_MIN = { echo: 0.35, sonar: 1.0, radar: 1.0 }
+const DUR_MAX = { echo: 2.5, sonar: 3.0, radar: 3.0 }
 
 const buildWaves = () => {
   const slow = SLOW[scene.value]
-  const mk = (maxDist, tRound, outColor, backColor) => ({
+  const mk = (maxDist, tRound, outColor, backColor, faintBack = false) => ({
     maxDist,
     tRound,
-    animDur: Math.min(3, Math.max(1.0, tRound * slow)),
+    animDur: Math.min(DUR_MAX[scene.value], Math.max(DUR_MIN[scene.value], tRound * slow)),
     outColor,
-    backColor
+    backColor,
+    faintBack
   })
   if (scene.value === 'echo') {
-    anim.waves = [mk(echoDist.value, echoT.value, '#00e5ff', '#ffd21f')]
+    anim.waves = [mk(echoDist.value, echoT.value, '#00e5ff', '#ffd21f', echoDist.value < 17)]
   } else if (scene.value === 'sonar') {
     anim.waves = [mk(sonarDepth.value, sonarT.value, '#00e5ff', '#ffd21f')]
     if (fishOn.value) anim.waves.push(mk(fishDepth.value, fishT.value, '#00e5ff', '#7cf29c'))
@@ -520,6 +523,7 @@ const drawWaveRing = (ctx, cx, cy, rPx, wv, now) => {
   const r = (out ? p * 2 : (1 - p) * 2) * rPx
   if (r < 1) return
   ctx.save()
+  if (!out && wv.faintBack) ctx.globalAlpha = 0.45
   ctx.strokeStyle = out ? wv.outColor : wv.backColor
   ctx.lineWidth = 3
   ctx.setLineDash(out ? [] : [8, 6])
@@ -582,6 +586,16 @@ const drawEcho = (ctx, W, H, now) => {
   ctx.font = '12px "Microsoft YaHei", sans-serif'
   ctx.textAlign = 'left'
   ctx.fillText('空气声速 v = 340 m/s　|　人耳分辨阈值 0.1 s（临界 17 m）', 14, 24)
+  // 临界判断提示（随距离实时变化）
+  const canDist = echoDist.value >= 17
+  ctx.fillStyle = canDist ? 'rgba(82,196,26,0.95)' : 'rgba(245,166,35,0.95)'
+  ctx.fillText(
+    canDist
+      ? '✅ 间隔 ' + echoT.value.toFixed(2) + ' s ≥ 0.1 s：能清晰区分原声与回声'
+      : '⚠️ 间隔 ' + echoT.value.toFixed(2) + ' s < 0.1 s：回声加强原声，人耳无法区分',
+    14,
+    44
+  )
 }
 
 const drawMountain = (ctx, x, topY, groundY, dir) => {
