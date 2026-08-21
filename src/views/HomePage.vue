@@ -5,7 +5,7 @@
       <h1>初中物理经典实验模拟平台</h1>
       <p class="subtitle">交互式可视化仿真 · 助力物理课堂教学</p>
 	  <!-- ===== 新增：测试按钮 ===== -->
-	  <button class="test-btn" @click="testBuoyancy">点击测试浮力引擎</button>
+	      <button class="donate-btn" @click="showDonate = true">🎁 打赏作者</button>
     </div>
 
     <!-- 章节卡片网格 -->
@@ -21,74 +21,26 @@
       />
     </div>
   </div>
+    <!-- 打赏弹窗 -->
+    <div v-if="showDonate" class="donate-mask" @click.self="showDonate = false">
+      <div class="donate-modal">
+        <button class="donate-close" @click="showDonate = false" aria-label="关闭">✕</button>
+        <h3 class="donate-title">🎁 感谢支持</h3>
+        <p class="donate-text">这个平台完全免费，如果它对您的学习或教学有帮助，<br>欢迎扫码打赏一杯奶茶～<br>您的支持是我持续更新的最大动力！</p>
+        <img class="donate-qr" :src="donateQr" alt="微信收款码">
+        <p class="donate-tip">微信扫一扫 · 感谢您的鼓励 ❤️</p>
+      </div>
+    </div>
 </template>
 
 <script setup>
 import ChapterCard from '@/components/ChapterCard.vue'
-import { PhysicsEngine } from '@/utils/physics/PhysicsEngine.js'
-import { gravity as calcGravity } from '@/utils/physics/physicsUtils.js'
+import { ref } from 'vue'
+import donateQr from '@/img/R.jpg'
 
-// ===== 新增：测试浮力引擎 =====
-const testBuoyancy = () => {
-  console.log('=== 浮力模拟测试开始 ===')
 
-  // 创建引擎，启用液体环境（水，液面高度1m，容器底部0m）
-  const engine = new PhysicsEngine({
-    liquid: {
-      enabled: true,
-      density: 1000,
-      surfaceHeight: 1.0,
-      bottomHeight: 0
-    }
-  })
-
-  // 添加木块：质量0.5kg，底面积0.01㎡，高度0.1m
-  // 初始位置：物体底部在0.8m处（整体完全浸没在水中）
-  const wood = engine.addBody({
-    id: 'wood',
-    mass: 0.5,
-    position: 0.8,
-    velocity: 0,
-    geometry: {
-      area: 0.01,
-      height: 0.1
-    }
-  })
-
-  // 施加重力（竖直向下，力为负值）
-  const gravity = calcGravity(wood.mass)
-  engine.addForce('wood', -gravity, 'gravity')
-
-  // 帧数计数，运行5秒后自动停止
-  let frameCount = 0
-
-  // 监听每帧更新
-  engine.onUpdate = (state) => {
-    const body = state.bodies[0]
-    frameCount++
-
-    // 每10帧打印一次，避免刷屏
-    if (frameCount % 10 === 0) {
-      console.log(
-        `t=${state.totalTime.toFixed(2)}s | ` +
-        `位置:${body.position.toFixed(3)}m | ` +
-        `浮力:${body.buoyancy.force.toFixed(3)}N | ` +
-        `浸入深度:${body.buoyancy.immersedDepth.toFixed(4)}m | ` +
-        `状态:${body.buoyancy.state}`
-      )
-    }
-
-    // 运行8秒后自动停止
-    if (state.totalTime >= 8) {
-      engine.pause()
-      console.log('=== 模拟结束，引擎已暂停 ===')
-      console.log('最终漂浮时浮力应≈重力：', gravity.toFixed(3), 'N')
-    }
-  }
-
-  // 启动模拟
-  engine.start()
-}
+// ===== 打赏弹窗状态 =====
+const showDonate = ref(false)
 
 // 五大章节基础配置
 const chapterList = [
@@ -177,6 +129,105 @@ const chapterList = [
   }
   .chapter-grid {
     gap: 14px;
+  }
+}
+.donate-btn {
+  margin-top: 20px;
+  padding: 10px 28px;
+  font-size: 15px;
+  color: #fff;
+  background: linear-gradient(135deg, #ff9a56, #ff6b6b);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(255, 107, 107, 0.35);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.donate-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 107, 107, 0.45);
+}
+.donate-btn:active {
+  transform: translateY(0);
+}
+
+/* 打赏弹窗 */
+.donate-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.donate-modal {
+  position: relative;
+  width: 340px;
+  max-width: 92vw;
+  padding: 32px 28px 24px;
+  background: #fff;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  animation: donate-pop 0.25s ease;
+}
+@keyframes donate-pop {
+  from { transform: scale(0.88); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.donate-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  color: $color-text-muted;
+  cursor: pointer;
+  border-radius: 50%;
+}
+.donate-close:hover { background: #f0f0f0; }
+.donate-title {
+  font-size: 20px;
+  color: $color-text-dark;
+  margin-bottom: 12px;
+}
+.donate-text {
+  font-size: 14px;
+  line-height: 1.8;
+  color: $color-text-muted;
+  margin-bottom: 16px;
+}
+.donate-qr {
+  width: 200px;
+  height: 200px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid #eee;
+  background: #fafafa;
+}
+.donate-tip {
+  margin-top: 14px;
+  font-size: 12px;
+  color: $color-text-muted;
+}
+
+@media (max-width: $bp-mobile) {
+  .donate-btn {
+    margin-top: 16px;
+    padding: 9px 22px;
+    font-size: 14px;
+  }
+  .donate-modal {
+    padding: 26px 20px 20px;
+  }
+  .donate-qr {
+    width: 170px;
+    height: 170px;
   }
 }
 </style>
