@@ -15,6 +15,8 @@
             {{ s.name }}
           </button>
         </div>
+        <button v-if="!submitted" class="submit-btn" @click="submitCircuit">✅ 提交电路</button>
+        <button v-else class="submit-btn back" @click="backToEdit">✏️ 返回编辑</button>
       </div>
       <button class="clear-btn" @click="clearAll">🗑 清空画布</button>
     </div>
@@ -71,6 +73,10 @@
         </ul>
 
         <div class="bar-title">参数设置</div>
+        <div v-if="circuitReport" class="report" :class="circuitReport.ok ? 'ok' : 'bad'">
+          <div class="rep-title">{{ circuitReport.ok ? '✅ 校验通过' : '⚠️ 校验未通过' }}</div>
+          <div v-for="(m, i) in circuitReport.msgs" :key="i" class="rep-line">{{ m }}</div>
+        </div>
         <div v-if="selectedComp" class="param-editor">
           <!-- 电池 -->
           <template v-if="selectedComp.type === 'battery'">
@@ -336,6 +342,294 @@ function toggleSwitch2() {
   if (c) c.params.position = c.params.position === 'up' ? 'down' : 'up'
 }
 
+// ---------- M3 提交与电路图生成 ----------
+const submitted = ref(false)
+const circuitReport = ref(null)
+const layout = ref(null)
+
+function backToEdit() {
+  submitted.value = false
+}
+
+// 构建拓扑：端子按导线合并为节点，元件为边
+// 返回 { roots: Map<termId, root>, compEdges: [{ comp, a, b }] }
+function buildTopo() {
+  const parent = {}
+  const find = (a) => {
+    while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a] }
+    return a
+  }
+  const union = (a, b) => {
+    const ra = find(a)
+    const rb = find(b)
+    if (ra !== rb) parent[ra] = rb
+  }
+  for (const c of comps.value) {
+    for (const t of getTerminals(c)) parent[t.id] = t.id
+  }
+  for (const w of wires.value) {
+    if (parent[w.a.termId] && parent[w.b.termId]) union(w.a.termId, w.b.termId)
+  }
+  const compEdges = []
+  for (const c of comps.value) {
+    let ts = getTerminals(c).map((t) => find(t.id))
+    // 单刀双掷：只取当前导通的两个端子
+    if (c.type === 'switch2') {
+      const all = getTerminals(c)
+      const com = all.find((t) => t.label === '')
+      const arm = all.find((t) => (c.params.position === 'up' ? t.dy < 0 : t.dy > 0))
+      if (com && arm) ts = [find(com.id), find(arm.id)]
+    }
+    if (ts.length >= 2 && ts[0] !== ts[1]) {
+      compEdges.push({ comp: c, a: ts[0], b: ts[1] })
+    } else if (ts.length >= 2 && ts[0] === ts[1]) {
+      // 元件两端被同一根线短接（自环），保留以便提示
+      compEdges.push({ comp: c, a: ts[0], b: ts[1], short: true })
+    }
+  }
+  return { compEdges }
+}
+
+// 找含电池的回路（主回路）：电池 a→b 之间经过其他元件的路径
+function findMainLoop(compEdges) {
+  const bat = compEdges.find((e) => (e.comp.type === 'battery' || e.comp.type === 'batteryBox') && !e.short)
+  if (!bat) return null
+  // 邻接表（节点 → 边）
+  const adj = new Map()
+  const addAdj = (node, edge) => {
+    if (!adj.has(node)) adj.set(node, [])
+    adj.get(node).push(edge)
+  }
+  for (const e of compEdges) {
+    if (e === bat) continue
+    addAdj(e.a, e)
+    addAdj(e.b, e)
+  }
+  // DFS 找 bat.a → bat.b 路径
+  const visited = new Set()
+  const path = []
+  let found = null
+  const dfs = (node, target) => {
+    if (found) return
+    if (node === target) { found = path.slice(); return }
+    visited.add(node)
+    for (const e of adj.get(node) || []) {
+      const next = e.a === node ? e.b : e.a
+      if (!visited.has(next)) {
+        path.push(e)
+        dfs(next, target)
+        if (found) return
+        path.pop()
+      }
+    }
+  }
+  dfs(bat.a, bat.b)
+  if (!found) return null
+  const loop = [bat, ...found]
+  // 节点序列（从 bat.a 开始沿回路）
+  const nodeSeq = [bat.a]
+  let cur = bat.a
+  for (const e of loop.slice(1)) {
+    cur = e.a === cur ? e.b : e.a
+    nodeSeq.push(cur)
+  }
+  return { loop, nodeSeq }
+}
+
+// 主回路之外的元件分类：并联支路 / 断路
+function classifyRest(mainLoop, compEdges) {
+  const loopSet = new Set(mainLoop.loop)
+  const loopNodes = new Set(mainLoop.nodeSeq)
+  const rest = compEdges.filter((e) => !loopSet.has(e))
+  const branches = [] // [{ comps: [], nA, nB }]
+  const broken = []
+  for (const e of rest) {
+    if (e.short) { broken.push(e.comp); continue }
+    if (loopNodes.has(e.a) && loopNodes.has(e.b)) {
+      // 并联支路：合并共享节点的支路元件
+      let br = branches.find((b) => b.nA === e.a && b.nB === e.b)
+      if (!br) { br = { nA: e.a, nB: e.b, comps: [] }; branches.push(br) }
+      br.comps.push(e.comp)
+    } else {
+      broken.push(e.comp)
+    }
+  }
+  return { branches, broken }
+}
+
+// 电路图布局（画布坐标）
+function buildLayout() {
+  const topo = buildTopo()
+  const main = findMainLoop(topo.compEdges)
+  const { branches, broken } = classifyRest(main, topo.compEdges)
+  const W = cvWrap.value.clientWidth
+  const H = cvWrap.value.clientHeight
+  const L = 110
+  const R = W - 110
+  const T = 96
+  const B = H - 110
+  const nodes = []
+  const segs = []
+  const reports = []
+
+  const bat = main.loop[0]
+  const topComps = main.loop.slice(1)
+  const k = topComps.length
+  const gap = (R - L) / (k + 1)
+  // 顶边元件
+  topComps.forEach((e, i) => {
+    nodes.push({ compId: e.comp.id, x: L + gap * (i + 1), y: T })
+  })
+  // 电池（底边）
+  nodes.push({ compId: bat.comp.id, x: L + 70, y: B })
+  // 底边导线：电池+ → (R,B)；电池- ← (L,B)
+  segs.push({ x1: L + 70 + 44, y1: B, x2: R, y2: B })
+  segs.push({ x1: L, y1: B, x2: L + 70 - 44, y2: B })
+  // 右边垂直
+  segs.push({ x1: R, y1: B, x2: R, y2: T })
+  // 左边垂直
+  segs.push({ x1: L, y1: T, x2: L, y2: B })
+  // 顶边元件端子引线与元件间连线
+  for (let i = 0; i < k; i++) {
+    const e = topComps[i]
+    const def = COMPONENT_TYPES[e.comp.type]
+    const hw = e.comp.w / 2
+    const cx = L + gap * (i + 1)
+    if (i === 0) segs.push({ x1: L, y1: T, x2: cx - hw, y2: T })
+    else {
+      const prev = topComps[i - 1]
+      const pxc = L + gap * i
+      segs.push({ x1: pxc + prev.comp.w / 2, y1: T, x2: cx - hw, y2: T })
+    }
+    if (i === k - 1) segs.push({ x1: cx + hw, y1: T, x2: R, y2: T })
+  }
+  // 并联支路：垂直排布在主回路内部
+  branches.forEach((br, bi) => {
+    const rowY = T + 120 + bi * 96
+    // 支路连接点在主回路顶边上的 x 位置
+    const findNodeX = (n) => {
+      // n 在 nodeSeq 中的位置 → 顶边元件索引
+      const idx = main.nodeSeq.indexOf(n)
+      if (idx <= 0) return L
+      if (idx >= k) return R
+      return L + gap * idx
+    }
+    const xA = findNodeX(br.nA)
+    const xB = findNodeX(br.nB)
+    const m = br.comps.length
+    br.comps.forEach((e, i) => {
+      const cx = Math.min(xA, xB) + (Math.abs(xB - xA) * (i + 1)) / (m + 1)
+      nodes.push({ compId: e.comp.id, x: cx, y: rowY })
+      // 引线到连接点
+      segs.push({ x1: cx - e.comp.w / 2, y1: rowY, x2: cx - e.comp.w / 2, y2: T })
+      segs.push({ x1: cx + e.comp.w / 2, y1: rowY, x2: cx + e.comp.w / 2, y2: T })
+      // 支路顶边水平连接（覆盖在主回路连线上方）
+    })
+    // 支路两连接点间水平连线（在 T 处，与主回路连线重合即可——补垂直段）
+    segs.push({ x1: Math.min(xA, xB), y1: T, x2: Math.max(xA, xB), y2: T })
+    // 支路元件间水平连线
+    for (let i = 0; i < m - 1; i++) {
+      const c1 = nodes[nodes.length - m + i]
+      const c2 = nodes[nodes.length - m + i + 1]
+      segs.push({ x1: c1.x + br.comps[i].comp.w / 2, y1: rowY, x2: c2.x - br.comps[i + 1].comp.w / 2, y2: rowY })
+    }
+    reports.push('并联支路：' + br.comps.map((e) => nameOf(e.comp.type)).join(' → '))
+  })
+
+  // 主回路报告
+  reports.unshift('主回路（串联）：' + main.loop.map((e) => nameOf(e.comp.type)).join(' → '))
+  if (broken.length) reports.push('⚠️ 断路元件：' + broken.map((c) => nameOf(c.type)).join('、'))
+
+  return {
+    nodes,
+    segs,
+    loopLen: main.loop.length,
+    branchCount: branches.length,
+    broken: broken.map((c) => nameOf(c.type)),
+    reports
+  }
+}
+
+// 校验并提交
+function submitCircuit() {
+  const msgs = []
+  let ok = true
+  if (!comps.value.length) {
+    msgs.push('画布为空，请先添加元件')
+    ok = false
+  } else {
+    // 未连接元件
+    const connected = new Set()
+    for (const w of wires.value) { connected.add(w.a.compId); connected.add(w.b.compId) }
+    const unconnected = comps.value.filter((c) => !connected.has(c.id))
+    if (unconnected.length) {
+      msgs.push('未接线元件：' + unconnected.map((c) => nameOf(c.type)).join('、'))
+      ok = false
+    }
+    if (!wires.value.length) {
+      msgs.push('没有任何导线，无法形成回路')
+      ok = false
+    }
+    if (ok) {
+      const topo = buildTopo()
+      const main = findMainLoop(topo.compEdges)
+      if (!main) {
+        msgs.push('未形成闭合回路：从电池正极出发无法回到负极（请检查接线）')
+        ok = false
+      } else {
+        const { branches, broken } = classifyRest(main, topo.compEdges)
+        if (branches.length) msgs.push('检测到 ' + branches.length + ' 条并联支路（并联电路）')
+        if (broken.length) msgs.push('断路元件：' + broken.map((c) => nameOf(c.type)).join('、') + '（未接入回路）')
+        const series = main.loop.filter((e) => e.comp.type === 'battery' || e.comp.type === 'batteryBox').length
+        msgs.push('回路元件数：' + main.loop.length + '（含电源 ' + series + ' 个）')
+      }
+    }
+  }
+  circuitReport.value = { ok, msgs }
+  if (ok) {
+    layout.value = buildLayout()
+    submitted.value = true
+  }
+}
+
+// 电路图绘制（submitted 模式）
+function drawLayout(ctx, cw, ch) {
+  if (!layout.value) return
+  const l = layout.value
+  // 背景区
+  ctx.fillStyle = '#f8fafc'
+  ctx.fillRect(0, 0, cw, ch)
+  // 导线（深灰，正交）
+  ctx.strokeStyle = '#334155'
+  ctx.lineWidth = 2.2
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (const s of l.segs) {
+    ctx.beginPath()
+    ctx.moveTo(s.x1, s.y1)
+    ctx.lineTo(s.x2, s.y2)
+    ctx.stroke()
+  }
+  // 元件
+  const nodeMap = new Map(l.nodes.map((n) => [n.compId, n]))
+  for (const c of comps.value) {
+    const n = nodeMap.get(c.id)
+    if (!n) continue
+    const saved = { x: c.x, y: c.y }
+    c.x = n.x
+    c.y = n.y
+    drawComponent(ctx, c)
+    c.x = saved.x
+    c.y = saved.y
+  }
+  // 标题
+  ctx.fillStyle = '#334155'
+  ctx.font = 'bold 14px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'top'
+  ctx.fillText('电路图（' + (l.branchCount ? '串并联混合' : '串联') + '电路）', 16, 14)
+}
+
 // ---------- 鼠标交互 ----------
 const cvWrap = ref(null)
 let rafId = 0
@@ -389,11 +683,12 @@ function hitSlider(c, x, y) {
 
 function onPointerDown(e) {
   if (e.button !== 0) return
+  // 电路图模式：只读
+  if (submitted.value) return
   const { x, y } = toLocal(e)
-  // 1. 接线柱 → 开始接线（断开该端子旧线）
+  // 1. 接线柱 → 开始接线（端子可连多根线，并联靠多线汇聚实现）
   const term = hitTerminal(x, y)
   if (term) {
-    disconnectTerm(term.id)
     comps.value.forEach((c) => (c.selected = false))
     selectedWireId.value = null
     wiring.value = { term, x, y, snap: null }
@@ -461,7 +756,6 @@ function onPointerUp(e) {
     wiring.value = null
     cv.value.style.cursor = 'default'
     if (w.snap) {
-      disconnectTerm(w.snap.id)
       wires.value.push({
         id: 'w' + (++wireId),
         a: { compId: w.term.compId, termId: w.term.id },
@@ -509,6 +803,14 @@ function draw() {
   ctx.scale(dpr, dpr)
   const cw = W / dpr
   const ch = H / dpr
+
+  // 电路图模式：只画布局
+  if (submitted.value && layout.value) {
+    drawLayout(ctx, cw, ch)
+    ctx.restore()
+    return
+  }
+
   ctx.fillStyle = '#f8fafc'
   ctx.fillRect(0, 0, cw, ch)
   // 网格
@@ -695,6 +997,29 @@ onBeforeUnmount(() => {
           background: #2563eb;
           color: #fff;
           border-color: #2563eb;
+        }
+      }
+    }
+
+    .submit-btn {
+      padding: 5px 12px;
+      font-size: 12px;
+      border: none;
+      border-radius: 6px;
+      background: #16a34a;
+      color: #fff;
+      cursor: pointer;
+      flex-shrink: 0;
+
+      &:hover {
+        background: #15803d;
+      }
+
+      &.back {
+        background: #2563eb;
+
+        &:hover {
+          background: #1d4ed8;
         }
       }
     }
@@ -956,6 +1281,45 @@ onBeforeUnmount(() => {
       text-align: center;
       padding: 16px 0;
       line-height: 1.8;
+    }
+
+    .report {
+      font-size: 12px;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 8px;
+      line-height: 1.7;
+
+      .rep-title {
+        font-weight: 700;
+        margin-bottom: 4px;
+      }
+
+      .rep-line {
+        color: #475569;
+      }
+
+      &.ok {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+
+        .rep-title {
+          color: #15803d;
+        }
+      }
+
+      &.bad {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+
+        .rep-title {
+          color: #b91c1c;
+        }
+
+        .rep-line {
+          color: #991b1b;
+        }
+      }
     }
   }
 }
