@@ -89,7 +89,12 @@
                 <tr v-for="c in comps" :key="c.id">
                   <td>{{ nameOf(c.type) }}</td>
                   <td>
-                    <template v-if="meterOf(c)">{{ meterOf(c).reading.toFixed(3) }}{{ meterOf(c).unit }}</template>
+                    <template v-if="meterOf(c) && c.type === 'ohmmeter'">
+                      <template v-if="meterOf(c).tip">—</template>
+                      <template v-else-if="meterOf(c).inf">∞</template>
+                      <template v-else>{{ meterOf(c).reading >= 1000 ? (meterOf(c).reading / 1000).toFixed(1) + 'k' : meterOf(c).reading.toFixed(1) }}{{ meterOf(c).unit }}</template>
+                    </template>
+                    <template v-else-if="meterOf(c)">{{ meterOf(c).reading.toFixed(3) }}{{ meterOf(c).unit }}</template>
                     <template v-else-if="resultOf(c)">{{ resultOf(c).U.toFixed(3) }}V</template>
                     <template v-else>—</template>
                   </td>
@@ -106,6 +111,7 @@
                     <template v-else-if="c.type === 'switch'">{{ c.params.closed ? '闭合' : '断开' }}</template>
                     <template v-else-if="c.type === 'switch2'">{{ c.params.position === 'up' ? '掷↑' : '掷↓' }}</template>
                     <template v-else-if="c.type === 'voltmeter' || c.type === 'ammeter'">{{ c.state.over ? '⚠️超量程' : '档位 ' + c.params.range }}</template>
+                    <template v-else-if="c.type === 'ohmmeter'">{{ c.state.tip ? c.state.tip : (c.state.over ? '⚠️打表' : (c.state.zero ? '✓ 已调零' : (c.state.inf ? '∞' : '测量中'))) }}</template>
                     <template v-else-if="c.type === 'rheostat'">{{ Math.round(c.params.slider * 100) }}%</template>
                     <template v-else>—</template>
                   </td>
@@ -163,11 +169,23 @@
                 :key="r"
                 class="range-btn"
                 :class="{ on: selectedComp.params.range === r }"
-                @click="selectedComp.params.range = r"
+                @click="setMeterRange(selectedComp, r)"
               >
                 {{ r }}{{ selectedComp.type === 'voltmeter' ? 'V' : 'A' }}
               </button>
             </div>
+            <label class="p-row">
+              <span>内阻 (Ω)</span>
+              <input type="number" min="0" max="100000" step="1" v-model.number="selectedComp.params.internalR" />
+            </label>
+            <div class="p-info">0 = 理想电表（无误差）；当前档位默认 {{ meterDefR(selectedComp) }}Ω，切换档位自动联动</div>
+          </template>
+
+          <!-- 欧姆表（多用电表欧姆档） -->
+          <template v-else-if="selectedComp.type === 'ohmmeter'">
+            <div class="p-info">内部结构：电池 1.5V + 调零电阻（表头满偏 1mA，中值电阻 = 1500Ω）</div>
+            <div class="p-info">当前中值电阻：{{ selectedComp.params.Rmid }}Ω（可拖动画布上「调零」旋钮，范围 1000~2000Ω）</div>
+            <div class="p-info">用法：红黑表笔接被测电阻两端（须断开电源）；表笔短接时调零旋钮使指针满偏</div>
           </template>
 
           <!-- 滑动变阻器 -->
@@ -278,6 +296,7 @@ const partButtons = [
   { key: 'resistor', type: 'resistor', name: '电阻' },
   { key: 'voltmeter', type: 'voltmeter', name: '电压表' },
   { key: 'ammeter', type: 'ammeter', name: '电流表' },
+  { key: 'ohmmeter', type: 'ohmmeter', name: '欧姆表' },
   { key: 'rheostat', type: 'rheostat', name: '滑动变阻器' },
   { key: 'switch', type: 'switch', name: '单刀开关' },
   { key: 'switch2', type: 'switch2', name: '单刀双掷' }
@@ -293,7 +312,7 @@ const cv = ref(null)
 const comps = ref([])
 const selectedComp = computed(() => comps.value.find((c) => c.selected) || null)
 
-const iconOf = (t) => ({ battery: '🔋', batteryBox: '🧰', bulb: '💡', resistor: 'Ω', voltmeter: 'V', ammeter: 'A', rheostat: '⇆', switch: '⏻', switch2: '⇅' }[t] || '?')
+const iconOf = (t) => ({ battery: '🔋', batteryBox: '🧰', bulb: '💡', resistor: 'Ω', voltmeter: 'V', ammeter: 'A', ohmmeter: 'Ω̂', rheostat: '⇆', switch: '⏻', switch2: '⇅' }[t] || '?')
 const nameOf = (t) => (COMPONENT_TYPES[t] ? COMPONENT_TYPES[t].name : t)
 const brief = (c) => {
   switch (c.type) {
@@ -388,6 +407,7 @@ const layout = ref(null)
 const solveResult = ref(null)       // M4 求解结果
 const layoutBackup = ref(null)      // 布局前的元件坐标（返回编辑时恢复）
 const dragRheostatCircuit = ref(null) // 电路图模式变阻器拖动
+const dragOhmCircuit = ref(null)      // 电路图模式欧姆表调零拖动
 
 function backToEdit() {
   submitted.value = false
@@ -422,12 +442,49 @@ function applySolve(sol) {
         c.state.rangeMax = c.params.range
         c.state.over = mm.reading > c.params.range
       }
+    } else if (c.type === 'ohmmeter') {
+      const mm = sol.meters.get(c.id)
+      if (mm) {
+        c.state.reading = mm.reading
+        c.state.frac = mm.frac
+        c.state.over = mm.over
+        c.state.zero = mm.zero
+        c.state.inf = mm.inf
+        c.state.tip = mm.tip
+      }
     }
   }
 }
 
 function solveNow() {
   applySolve(solveCircuit(comps.value, wires.value, getTerminals))
+}
+
+// M5：电表档位切换联动内阻（用户自定义过内阻则不覆盖）
+const METER_DEF_R = {
+  voltmeter: { 3: 3000, 15: 15000 },
+  ammeter: { 0.6: 0.5, 3: 0.1 }
+}
+function setMeterRange(c, r) {
+  const old = c.params.range
+  const map = METER_DEF_R[c.type]
+  if (map && map[old] !== undefined && c.params.internalR === map[old]) {
+    c.params.internalR = map[r]
+  }
+  c.params.range = r
+  if (submitted.value) solveNow()
+}
+function meterDefR(c) {
+  const map = METER_DEF_R[c.type]
+  return map ? map[c.params.range] : 0
+}
+// 欧姆表调零旋钮命中（元件底部旋钮中心 (0,40) 半径 12）
+function hitOhmKnob(c, x, y) {
+  return c.type === 'ohmmeter' && Math.hypot(x - c.x, y - (c.y + 40)) < 14
+}
+// 调零旋钮拖动 → 中值电阻 1000~2000Ω
+function applyOhmZero(c, x) {
+  c.params.Rmid = Math.round(Math.min(2000, Math.max(1000, 1500 + (x - c.x) * 10)))
 }
 
 // 数据栏求解面板辅助
@@ -507,7 +564,7 @@ function buildTopo() {
 
 // 找含电池的回路（主回路）：电池 a→b 之间经过其他元件的路径
 function findMainLoop(compEdges) {
-  const bat = compEdges.find((e) => (e.comp.type === 'battery' || e.comp.type === 'batteryBox') && !e.short)
+  const bat = compEdges.find((e) => (e.comp.type === 'battery' || e.comp.type === 'batteryBox' || e.comp.type === 'ohmmeter') && (!e.short || e.comp.type === 'ohmmeter'))
   if (!bat) return null
   // 邻接表（节点 → 边）
   const adj = new Map()
@@ -815,13 +872,14 @@ function onPointerDown(e) {
         c.params.position = c.params.position === 'up' ? 'down' : 'up'
         solveNow()
       } else if (c.type === 'voltmeter') {
-        c.params.range = c.params.range === 3 ? 15 : 3
-        solveNow()
+        setMeterRange(c, c.params.range === 3 ? 15 : 3)
       } else if (c.type === 'ammeter') {
-        c.params.range = c.params.range === 0.6 ? 3 : 0.6
-        solveNow()
+        setMeterRange(c, c.params.range === 0.6 ? 3 : 0.6)
       } else if (c.type === 'rheostat') {
         dragRheostatCircuit.value = c.id
+        cv.value.style.cursor = 'ew-resize'
+      } else if (c.type === 'ohmmeter' && hitOhmKnob(c, x, y)) {
+        dragOhmCircuit.value = c.id
         cv.value.style.cursor = 'ew-resize'
       }
       return
@@ -843,6 +901,15 @@ function onPointerDown(e) {
     if (hitSlider(c, x, y)) {
       comps.value.forEach((o) => (o.selected = o.id === c.id))
       drag = { mode: 'slider', comp: c, startX: x }
+      return
+    }
+  }
+  // 2.5 欧姆表调零旋钮（优先于元件选中）
+  for (let i = comps.value.length - 1; i >= 0; i--) {
+    const c = comps.value[i]
+    if (hitOhmKnob(c, x, y)) {
+      comps.value.forEach((o) => (o.selected = o.id === c.id))
+      drag = { mode: 'ohmZero', comp: c }
       return
     }
   }
@@ -876,6 +943,12 @@ function onPointerMove(e) {
         c.params.slider = Math.min(1, Math.max(0, (x - (c.x - 40)) / 80))
         solveNow()
       }
+    } else if (dragOhmCircuit.value) {
+      const c = comps.value.find((o) => o.id === dragOhmCircuit.value)
+      if (c) {
+        applyOhmZero(c, x)
+        solveNow()
+      }
     }
     return
   }
@@ -899,6 +972,8 @@ function onPointerMove(e) {
     const c = drag.comp
     const sxp = x - c.x
     c.params.slider = Math.min(1, Math.max(0, (sxp + 40) / 80))
+  } else if (drag.mode === 'ohmZero') {
+    applyOhmZero(drag.comp, x)
   }
 }
 
@@ -907,6 +982,10 @@ function onPointerUp(e) {
   if (submitted.value) {
     if (dragRheostatCircuit.value) {
       dragRheostatCircuit.value = null
+      cv.value.style.cursor = 'default'
+    }
+    if (dragOhmCircuit.value) {
+      dragOhmCircuit.value = null
       cv.value.style.cursor = 'default'
     }
     return

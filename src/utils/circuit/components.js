@@ -74,7 +74,7 @@ export const COMPONENT_TYPES = {
   voltmeter: {
     name: '电压表',
     w: 84, h: 64,
-    defaultParams: { range: 3 },
+    defaultParams: { range: 3, internalR: 3000 },
     terminals: [
       { label: '-', dx: -40, dy: 0, ldx: -10, ldy: 8 },
       { label: '+', dx: 40, dy: 0, ldx: 4, ldy: 8 }
@@ -84,12 +84,22 @@ export const COMPONENT_TYPES = {
   ammeter: {
     name: '电流表',
     w: 84, h: 64,
-    defaultParams: { range: 0.6 },
+    defaultParams: { range: 0.6, internalR: 0.5 },
     terminals: [
       { label: '-', dx: -40, dy: 0, ldx: -10, ldy: 8 },
       { label: '+', dx: 40, dy: 0, ldx: 4, ldy: 8 }
     ],
     draw: (ctx, c) => drawMeter(ctx, c, 'A', '电流表')
+  },
+  ohmmeter: {
+    name: '欧姆表',
+    w: 96, h: 88,
+    defaultParams: { E: 1.5, Rmid: 1500 },
+    terminals: [
+      { label: '红', dx: -44, dy: 0, ldx: -8, ldy: 10 },
+      { label: '黑', dx: 44, dy: 0, ldx: 2, ldy: 10 }
+    ],
+    draw: drawOhmmeter
   },
   rheostat: {
     name: '滑动变阻器',
@@ -127,7 +137,7 @@ export const COMPONENT_TYPES = {
 }
 
 // 器材栏顺序
-export const PART_LIST = ['battery', 'batteryBox', 'bulb', 'resistor', 'voltmeter', 'ammeter', 'rheostat', 'switch', 'switch2']
+export const PART_LIST = ['battery', 'batteryBox', 'bulb', 'resistor', 'voltmeter', 'ammeter', 'ohmmeter', 'rheostat', 'switch', 'switch2']
 
 // ---------- 工厂 ----------
 export function createComponent(type, extra = {}) {
@@ -512,6 +522,140 @@ function drawMeter(ctx, comp, letter, label) {
   ctx.fillStyle = COLORS.dim
   ctx.font = '10px "Microsoft YaHei", sans-serif'
   ctx.fillText(label, 0, 33)
+  // 内阻标注（M5：真实电表内阻）
+  const ir = comp.params.internalR
+  if (ir !== undefined) {
+    ctx.fillStyle = COLORS.orange
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText((letter === 'V' ? 'Rv ' : 'RA ') + (ir >= 1000 ? (ir / 1000) + 'kΩ' : ir + 'Ω'), 0, 45)
+  }
+}
+
+// ---------- 欧姆表（M5：多用电表欧姆档，本质是电流表+电池+调零电阻） ----------
+function drawOhmmeter(ctx, comp) {
+  const E = comp.params.E || 1.5
+  const Rmid = comp.params.Rmid || 1500
+  const Ig = E / 1500 // 满偏电流（1mA @ 1.5V 默认）
+  const r = 20
+  // 引线（红 + / 黑 -）
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.moveTo(-44, 0)
+  ctx.lineTo(-r - 4, 0)
+  ctx.moveTo(44, 0)
+  ctx.lineTo(r + 4, 0)
+  ctx.stroke()
+  // 表壳
+  ctx.fillStyle = '#ffffff'
+  ctx.strokeStyle = COLORS.line
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.arc(0, -10, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // 反比刻度弧（左 ∞ → 右 0）
+  ctx.strokeStyle = '#94a3b8'
+  ctx.lineWidth = 1.4
+  ctx.beginPath()
+  ctx.arc(0, -10, r - 5, Math.PI * 0.75, Math.PI * 2.25)
+  ctx.stroke()
+  // 刻度：Rx → frac = Rmid/(Rmid+Rx)（反比）
+  const ticks = [0, Rmid / 3, Rmid, Rmid * 3, Infinity]
+  const tickLabel = (v) => (v === Infinity ? '∞' : v >= 1000 ? (v / 1000).toFixed(v % 1000 === 0 ? 0 : 1) + 'k' : String(Math.round(v)))
+  ticks.forEach((v) => {
+    const frac = v === Infinity ? 0 : Rmid / (Rmid + v)
+    const ang = Math.PI * 0.75 + frac * Math.PI * 1.5
+    const x0 = Math.cos(ang) * (r - 8)
+    const y0 = -10 + Math.sin(ang) * (r - 8)
+    const x1 = Math.cos(ang) * (r - 3)
+    const y1 = -10 + Math.sin(ang) * (r - 3)
+    ctx.strokeStyle = '#475569'
+    ctx.lineWidth = 1.4
+    ctx.beginPath()
+    ctx.moveTo(x0, y0)
+    ctx.lineTo(x1, y1)
+    ctx.stroke()
+    ctx.fillStyle = '#475569'
+    ctx.font = '9px "Microsoft YaHei", sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(tickLabel(v), Math.cos(ang) * (r - 13), -10 + Math.sin(ang) * (r - 13))
+  })
+  // 指针（frac = I/Ig：0 → ∞ 左端，1 → 0Ω 右端）
+  const frac = comp.state.frac || 0
+  const over = comp.state.over
+  const ang = Math.PI * 0.75 + Math.min(1, Math.max(0, frac)) * Math.PI * 1.5
+  ctx.strokeStyle = COLORS.red
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.moveTo(0, -10)
+  ctx.lineTo(Math.cos(ang) * (r - 6), -10 + Math.sin(ang) * (r - 6))
+  ctx.stroke()
+  // 打表：红圈
+  if (over) {
+    ctx.strokeStyle = COLORS.red
+    ctx.lineWidth = 2.6
+    ctx.beginPath()
+    ctx.arc(0, -10, r + 3, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  // 字母 Ω
+  ctx.fillStyle = COLORS.line
+  ctx.font = 'bold 15px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText('Ω', 0, -10)
+  // 中值标注
+  ctx.fillStyle = COLORS.blue
+  ctx.font = '10px "Microsoft YaHei", sans-serif'
+  ctx.fillText('中值 ' + (Rmid >= 1000 ? (Rmid / 1000) + 'k' : Rmid) + 'Ω', 0, 12)
+  // 读数 / 状态
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  if (comp.state.tip) {
+    ctx.fillStyle = COLORS.red
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText(comp.state.tip, 0, 26)
+  } else if (comp.state.zero) {
+    ctx.fillStyle = '#16a34a'
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText('✓ 已调零', 0, 26)
+  } else if (comp.state.inf) {
+    ctx.fillStyle = COLORS.dim
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText('Rx = ∞', 0, 26)
+  } else if (comp.state.reading !== undefined && comp.state.reading !== null && !Number.isNaN(comp.state.reading)) {
+    ctx.fillStyle = COLORS.line
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText('Rx = ' + (comp.state.reading >= 1000 ? (comp.state.reading / 1000).toFixed(1) + 'k' : Math.round(comp.state.reading)) + 'Ω', 0, 26)
+  } else {
+    ctx.fillStyle = COLORS.dim
+    ctx.font = '10px "Microsoft YaHei", sans-serif'
+    ctx.fillText('未接入', 0, 26)
+  }
+  // 调零旋钮（底部，拖动改变 Rmid 1000~2000）
+  const knobY = 40
+  ctx.strokeStyle = COLORS.term
+  ctx.lineWidth = 1.6
+  ctx.fillStyle = '#f1f5f9'
+  ctx.beginPath()
+  ctx.arc(0, knobY, 8, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  // 旋钮指示线（Rmid 1000~2000 → -120°~+120°）
+  const kfrac = Math.min(1, Math.max(0, (Rmid - 1000) / 1000))
+  const kang = -Math.PI / 2 + (kfrac - 0.5) * (Math.PI * 2 / 3)
+  ctx.strokeStyle = COLORS.red
+  ctx.lineWidth = 1.8
+  ctx.beginPath()
+  ctx.moveTo(0, knobY)
+  ctx.lineTo(Math.cos(kang) * 6, knobY + Math.sin(kang) * 6)
+  ctx.stroke()
+  ctx.fillStyle = COLORS.dim
+  ctx.font = '9px "Microsoft YaHei", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('调零', 0, knobY + 13)
 }
 
 // ---------- 滑动变阻器 ----------
