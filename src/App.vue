@@ -45,4 +45,15 @@ body {
   margin: 0 auto;
   padding: 0 24px;
 }
+
+/* ===== 移动端全局适配 ===== */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: $bp-mobile) {
+  .page-main {
+    padding: 0 12px;
+  }
+}
 </style>

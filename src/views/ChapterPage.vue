@@ -106,6 +106,38 @@ const goToExperiment = (exp) => {
   padding: 24px 0;
 }
 
+@media (max-width: $bp-mobile) {
+  .chapter-page {
+    padding: 14px 0 30px;
+  }
+  .page-header {
+    margin-bottom: 16px;
+    h2 {
+      font-size: 18px;
+    }
+  }
+  .back-btn {
+    padding: 10px 10px;
+    font-size: 14px;
+  }
+  .experiment-item {
+    padding: 14px;
+    gap: 12px;
+  }
+  .exp-number {
+    width: 38px;
+    height: 38px;
+    font-size: 14px;
+  }
+  .exp-name {
+    font-size: 15px;
+  }
+  .exp-desc {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
 .page-header {
   display: flex;
   align-items: center;

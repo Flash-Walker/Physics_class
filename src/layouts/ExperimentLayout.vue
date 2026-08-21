@@ -3,8 +3,11 @@
     <!-- 三栏主布局：左控制面板 + 中画布 + 右数据面板 -->
     <div class="layout-main">
       <!-- 左侧：参数控制面板 -->
-      <aside class="panel control-panel">
-        <div class="panel-title">参数控制</div>
+      <aside class="panel control-panel" :class="{ 'panel-open': activePanel === 'control' }">
+        <div class="panel-title">
+          参数控制
+          <button class="panel-close" @click="activePanel = null">✕ 关闭</button>
+        </div>
         <slot name="control">
           <p class="panel-placeholder">请在此处添加实验参数控制器</p>
         </slot>
@@ -18,6 +21,8 @@
             <span class="run-state" :class="runState">{{ runStateText }}</span>
           </div>
           <div class="control-buttons">
+            <button class="btn btn-secondary drawer-btn" @click="togglePanel('control')">⚙ 参数</button>
+            <button class="btn btn-secondary drawer-btn" @click="togglePanel('data')">📊 数据</button>
             <button class="btn btn-primary" @click="$emit('start')">开始</button>
             <button class="btn btn-secondary" @click="$emit('pause')">暂停</button>
             <button class="btn btn-reset" @click="$emit('reset')">重置</button>
@@ -31,8 +36,11 @@
       </section>
 
       <!-- 右侧：实时数据面板 -->
-      <aside class="panel data-panel">
-        <div class="panel-title">实时数据</div>
+      <aside class="panel data-panel" :class="{ 'panel-open': activePanel === 'data' }">
+        <div class="panel-title">
+          实时数据
+          <button class="panel-close" @click="activePanel = null">✕ 关闭</button>
+        </div>
         <slot name="data">
           <p class="panel-placeholder">请在此处添加实验数据展示</p>
         </slot>
@@ -40,6 +48,9 @@
     </div>
 
     <!-- 底部：实验原理折叠面板 -->
+    <!-- 移动端抽屉遮罩 -->
+    <div v-if="activePanel" class="drawer-mask" @click="activePanel = null"></div>
+
     <div class="theory-panel">
       <div class="theory-header" @click="isTheoryOpen = !isTheoryOpen">
         <span>📖 实验原理与公式说明</span>
@@ -86,6 +97,12 @@ defineEmits(['start', 'pause', 'reset'])
 
 // 原理面板展开状态
 const isTheoryOpen = ref(false)
+
+// 移动端抽屉：null / 'control' / 'data'
+const activePanel = ref(null)
+const togglePanel = (name) => {
+  activePanel.value = activePanel.value === name ? null : name
+}
 </script>
 
 <style lang="scss" scoped>
@@ -272,5 +289,116 @@ const isTheoryOpen = ref(false)
   line-height: 1.8;
   color: $color-text-dark;
   font-size: 14px;
+}
+
+/* ===== 移动端抽屉控件（桌面端隐藏） ===== */
+.drawer-btn,
+.panel-close {
+  display: none;
+}
+
+.drawer-mask {
+  display: none;
+}
+
+/* ===== 移动端适配：画布优先 + 底部抽屉 ===== */
+@media (max-width: $bp-mobile) {
+  .layout-main {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 52px - 40px);
+    min-height: 0;
+    gap: 10px;
+  }
+
+  .canvas-wrapper {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 左右面板 → 固定底部抽屉 */
+  .panel.control-panel,
+  .panel.data-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 58vh;
+    max-height: 480px;
+    z-index: 300;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.25);
+    transform: translateY(105%);
+    transition: transform 0.28s ease;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+
+    &.panel-open {
+      transform: translateY(0);
+    }
+  }
+
+  .panel-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .panel-close {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #fff;
+    border-radius: 14px;
+    padding: 5px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .drawer-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.42);
+    z-index: 290;
+  }
+
+  /* 抽屉按钮在移动端显示 */
+  .drawer-btn {
+    display: inline-block;
+  }
+
+  .canvas-header {
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .canvas-title {
+    font-size: 14px;
+  }
+
+  .control-buttons {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .canvas-body {
+    padding: 8px;
+  }
+
+  .theory-header {
+    padding: 12px 14px;
+    font-size: 14px;
+  }
+
+  .theory-body {
+    padding: 14px 16px;
+    font-size: 13px;
+  }
 }
 </style>

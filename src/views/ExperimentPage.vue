@@ -95,6 +95,27 @@ const goBack = () => {
   }
 }
 
+@media (max-width: $bp-mobile) {
+  .experiment-page {
+    padding: 10px 0;
+  }
+  .exp-header {
+    gap: 10px;
+    margin-bottom: 10px;
+    .exp-title {
+      font-size: 16px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+  }
+  .back-btn {
+    padding: 10px 8px;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+}
+
 .back-btn {
   background: none;
   border: none;

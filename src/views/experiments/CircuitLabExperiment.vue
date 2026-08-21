@@ -23,7 +23,11 @@
 
     <div class="main">
       <!-- 器材栏 -->
-      <aside class="parts-bar">
+      <aside class="parts-bar" :class="{ 'bar-open': mobilePanel === 'parts' }">
+        <div class="drawer-head">
+          <span>器材栏</span>
+          <button class="drawer-close" @click="mobilePanel = null">✕ 关闭</button>
+        </div>
         <div class="bar-title">器材栏</div>
         <button
           v-for="p in partButtons"
@@ -38,11 +42,15 @@
 
       <!-- 画布 -->
       <div class="canvas-wrap" ref="cvWrap">
-        <canvas ref="cv" class="cv" @mousedown="onPointerDown"></canvas>
+        <canvas ref="cv" class="cv" @pointerdown="onPointerDown"></canvas>
       </div>
 
       <!-- 数据栏 -->
-      <aside class="data-panel">
+      <aside class="data-panel" :class="{ 'bar-open': mobilePanel === 'data' }">
+        <div class="drawer-head">
+          <span>数据与参数</span>
+          <button class="drawer-close" @click="mobilePanel = null">✕ 关闭</button>
+        </div>
         <div class="bar-title">元件清单（{{ comps.length }}）</div>
         <ul class="comp-list">
           <li
@@ -222,6 +230,12 @@
       </aside>
     </div>
   </div>
+    <!-- 移动端悬浮按钮与遮罩 -->
+    <div class="fab-stack">
+      <button class="fab-add fab-data" @click="toggleMobilePanel('data')">📊</button>
+      <button class="fab-add" @click="toggleMobilePanel('parts')">＋</button>
+    </div>
+    <div v-if="mobilePanel" class="mobile-mask" @click="mobilePanel = null"></div>
 </template>
 
 <script setup>
@@ -360,6 +374,13 @@ function findFreeSpot(w, h) {
   return { x: cx, y: cy }
 }
 
+// ---------- 移动端抽屉状态 ----------
+const mobilePanel = ref(null)
+const toggleMobilePanel = (name) => {
+  mobilePanel.value = mobilePanel.value === name ? null : name
+}
+const isMobile = () => window.innerWidth <= 768
+
 // ---------- 添加 / 删除 / 选中 ----------
 function addPart(p) {
   const comp = createComponent(p.type, p.cells ? { cells: p.cells } : {})
@@ -369,6 +390,8 @@ function addPart(p) {
   comps.value.forEach((c) => (c.selected = false))
   comp.selected = true
   comps.value.push(comp)
+  // 移动端：添加元件后收起器材抽屉，让画布可见
+  if (isMobile()) mobilePanel.value = null
 }
 
 function select(id) {
@@ -826,7 +849,8 @@ function topHit(x, y) {
 }
 
 // 命中接线柱（优先于元件，radius 为命中半径）
-function hitTerminal(x, y, radius = 14) {
+function hitTerminal(x, y, radius) {
+  if (radius === undefined) radius = isMobile() ? 20 : 14
   for (const c of comps.value) {
     for (const t of getTerminals(c)) {
       if (Math.hypot(x - t.x, y - t.y) <= radius) return t
@@ -842,7 +866,8 @@ function hitWire(x, y) {
     const a = termPos(w.a)
     const b = termPos(w.b)
     if (!a || !b) continue
-    if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style) < 7) return w
+    const wd = isMobile() ? 12 : 7
+    if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style) < wd) return w
   }
   return null
 }
@@ -853,7 +878,9 @@ function hitSlider(c, x, y) {
   const sxp = -40 + c.params.slider * 80
   const lx = x - c.x
   const ly = y - c.y
-  if (Math.abs(lx - sxp) <= 11 && ly >= -16 && ly <= -2) return true
+  const hw = isMobile() ? 14 : 11
+  const top = isMobile() ? -18 : -16
+  if (Math.abs(lx - sxp) <= hw && ly >= top && ly <= 0) return true
   return null
 }
 
@@ -1184,16 +1211,16 @@ window.__circuitState = () => ({    comps: comps.value.map((c) => ({ id: c.id, t
   ro.observe(wrap)
   loop()
   window.addEventListener('keydown', onKeyDown)
-  window.addEventListener('mousemove', onPointerMove)
-  window.addEventListener('mouseup', onPointerUp)
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp)
 })
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(rafId)
   if (ro) ro.disconnect()
   window.removeEventListener('keydown', onKeyDown)
-  window.removeEventListener('mousemove', onPointerMove)
-  window.removeEventListener('mouseup', onPointerUp)
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
 })
 </script>
 
@@ -1634,6 +1661,163 @@ onBeforeUnmount(() => {
         }
       }
     }
+  }
+}
+/* ===== 移动端抽屉控件（桌面端隐藏） ===== */
+.drawer-head,
+.drawer-close,
+.fab-add,
+.fab-stack,
+.mobile-mask {
+  display: none;
+}
+
+/* ===== 移动端适配：画布全屏 + 悬浮按钮 + 侧滑/底部抽屉 ===== */
+@media (max-width: $bp-mobile) {
+  .circuit-lab {
+    height: calc(100vh - 52px);
+    min-height: 0;
+  }
+
+  .toolbar {
+    padding: 6px 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+
+    .hint {
+      display: none;
+    }
+
+    .tb-left {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .ws-btn,
+    .submit-btn,
+    .clear-btn {
+      padding: 7px 10px;
+      font-size: 12px;
+    }
+  }
+
+  .main {
+    display: block;
+    position: relative;
+  }
+
+  .canvas-wrap {
+    height: 100%;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* 器材栏 → 左侧滑出抽屉 */
+  .parts-bar {
+    position: fixed;
+    top: 52px;
+    bottom: 0;
+    left: 0;
+    width: 208px;
+    z-index: 300;
+    border-right: none;
+    box-shadow: 4px 0 18px rgba(15, 23, 42, 0.22);
+    transform: translateX(-105%);
+    transition: transform 0.28s ease;
+
+    &.bar-open {
+      transform: translateX(0);
+    }
+  }
+
+  /* 数据栏 → 底部抽屉 */
+  .data-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 62vh;
+    max-height: 480px;
+    z-index: 300;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.18);
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform 0.28s ease;
+
+    &.bar-open {
+      transform: translateY(0);
+    }
+  }
+
+  .drawer-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    padding: 2px 2px 8px;
+    border-bottom: 1px solid #e2e8f0;
+    margin-bottom: 8px;
+  }
+
+  .drawer-close {
+    padding: 6px 12px;
+    font-size: 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 14px;
+    background: #f8fafc;
+    color: #475569;
+    cursor: pointer;
+  }
+
+  /* 悬浮按钮组 */
+  .fab-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: fixed;
+    right: 16px;
+    bottom: calc(28px + env(safe-area-inset-bottom));
+    z-index: 200;
+  }
+
+  .fab-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #fff;
+    font-size: 26px;
+    font-weight: 700;
+    border: none;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.45);
+    cursor: pointer;
+
+    &:active {
+      transform: scale(0.94);
+    }
+  }
+
+  .fab-data {
+    background: #334155;
+    font-size: 18px;
+    box-shadow: 0 4px 14px rgba(51, 65, 85, 0.4);
+  }
+
+  .mobile-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 290;
   }
 }
 </style>

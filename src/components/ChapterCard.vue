@@ -80,6 +80,34 @@ const handleClick = () => {
   line-height: 1;
 }
 
+@media (max-width: $bp-mobile) {
+  .chapter-card {
+    padding: 18px 16px;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
+  }
+  .card-icon {
+    font-size: 30px;
+    margin-bottom: 0;
+  }
+  .card-desc {
+    min-height: 0;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .card-footer {
+    padding-top: 8px;
+    border-top: none;
+    .count-num {
+      font-size: 20px;
+    }
+  }
+  .card-title {
+    font-size: 17px;
+  }
+}
+
 .card-title {
   font-size: 20px;
   color: $color-primary;

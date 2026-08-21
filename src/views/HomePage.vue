@@ -160,4 +160,23 @@ const chapterList = [
   max-width: 1200px;
   margin: 0 auto;
 }
+
+@media (max-width: $bp-mobile) {
+  .home-page {
+    padding: 20px 0 40px;
+  }
+  .page-hero {
+    margin-bottom: 24px;
+    h1 {
+      font-size: 22px;
+      letter-spacing: 0.5px;
+    }
+    .subtitle {
+      font-size: 13px;
+    }
+  }
+  .chapter-grid {
+    gap: 14px;
+  }
+}
 </style>

@@ -46,6 +46,27 @@ const goHome = () => {
   justify-content: space-between;
 }
 
+@media (max-width: $bp-mobile) {
+  .nav-inner {
+    padding: 0 12px;
+    height: 52px;
+  }
+  .logo-icon {
+    font-size: 20px;
+  }
+  .logo-text {
+    font-size: 15px;
+    max-width: 58vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nav-link {
+    font-size: 14px;
+    padding: 10px 6px;
+  }
+}
+
 .logo {
   display: flex;
   align-items: center;
