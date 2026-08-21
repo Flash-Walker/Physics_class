@@ -52,7 +52,13 @@ const chapterData = {
   },
   // 其余章节后续逐步补充
   heat: { title: '热学', experiments: [] },
-  acoustics: { title: '声学', experiments: [] },
+  acoustics: {
+    title: '声学',
+    experiments: [
+      { id: 'sound-wave', num: '01', name: '声音的波形与频谱', description: '麦克风发声或播放内置音频，实时观察声音的波形与频谱', status: 'done' },
+      { id: 'echo-ranging', num: '02', name: '回声与声呐测距', description: '山谷回声与声呐测海底：s = vt/2 测距模拟', status: 'dev' }
+    ]
+  },
   optics: {
     title: '光学',
     experiments: [

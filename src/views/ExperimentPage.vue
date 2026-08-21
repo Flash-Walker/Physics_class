@@ -33,7 +33,9 @@ const experimentComponents = {
   'optics/mirror': defineAsyncComponent(() => import('./experiments/MirrorExperiment.vue')),
   'optics/refraction': defineAsyncComponent(() => import('./experiments/RefractionExperiment.vue')),
   'optics/convex-lens': defineAsyncComponent(() => import('./experiments/ConvexLensExperiment.vue')),
-  'optics/dispersion': defineAsyncComponent(() => import('./experiments/DispersionExperiment.vue'))
+  'optics/dispersion': defineAsyncComponent(() => import('./experiments/DispersionExperiment.vue')),
+  // 声学实验
+  'acoustics/sound-wave': defineAsyncComponent(() => import('./experiments/SoundWaveExperiment.vue'))
 }
 
 // 当前实验组件
@@ -57,7 +59,9 @@ const experimentName = computed(() => {
     mirror: '平面镜成像',
     refraction: '光的折射',
     'convex-lens': '凸透镜成像规律',
-    dispersion: '光的色散'
+    dispersion: '光的色散',
+    'sound-wave': '声音的波形与频谱',
+    'echo-ranging': '回声与声呐测距'
   }
   return nameMap[route.params.expId] || '物理实验'
 })

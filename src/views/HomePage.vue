@@ -110,8 +110,8 @@ const chapterList = [
     id: 'acoustics',
     icon: '🔊',
     title: '声学',
-    description: '声音的产生传播、波形可视化、回声测距实验',
-    count: 4
+    description: '声音波形与频谱观察、回声测距模拟实验',
+    count: 2
   },
   {
     id: 'optics',

@@ -11,6 +11,7 @@ import { mirrorConfig } from './experiments/optics/mirror.js'
 import { refractionConfig } from './experiments/optics/refraction.js'
 import { convexLensConfig } from './experiments/optics/convex-lens.js'
 import { dispersionConfig } from './experiments/optics/dispersion.js'
+import { soundWaveConfig } from './experiments/acoustics/sound-wave.js'
 
 export const experimentConfigs = {
   'mechanics/meeting': meetingConfig,
@@ -26,7 +27,9 @@ export const experimentConfigs = {
   'optics/mirror': mirrorConfig,
   'optics/refraction': refractionConfig,
   'optics/convex-lens': convexLensConfig,
-  'optics/dispersion': dispersionConfig
+  'optics/dispersion': dispersionConfig,
+  // 声学实验
+  'acoustics/sound-wave': soundWaveConfig
   // 后续实验逐个添加，例如：
   // 'mechanics/buoyancy': buoyancyConfig
 }
