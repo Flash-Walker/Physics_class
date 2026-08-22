@@ -20,7 +20,11 @@ import {
   refractionAngle,
   pointDistance,
   normalizeAngle,
-  degToRad
+  degToRad,
+  clamp,
+  applyThermalMotion,
+  bounceInBox,
+  latticeVibrate
 } from './physicsUtils.js'
 
 export class PhysicsEngine {
@@ -780,6 +784,129 @@ export class OpticsEngine extends PhysicsEngine {
         width: r.width,
         dashed: r.dashed
       }))
+    }
+  }
+}
+
+// ==========================================
+// 热学引擎：分子热运动 + 物态变化粒子模拟
+// 计算与渲染完全分离，纯逻辑层
+// 粒子字段约定：st(solid/liquid/gas/snow), ax/ay(晶格锚点), x/y/vx/vy, size, ph, settled
+// 蒸发/液化/凝华由"粒子碰撞液面"触发，按空气容量 gasCapacity 决定穿越方向
+// ==========================================
+
+export class ThermalParticleEngine {
+  /**
+   * @param {Array} particles 粒子数组（reactive 亦可，直接引用）
+   * @param {Object} [options]
+   * @param {number} [options.maxSnow=15] 凝华雪花数量上限
+   */
+  constructor(particles, options = {}) {
+    this.particles = particles
+    this.maxSnow = options.maxSnow ?? 15
+  }
+
+  /**
+   * 更新所有粒子（每帧调用）
+   * @param {number} dt 帧时间差 s
+   * @param {Object} P 帧参数
+   *  - thermal 热运动强度 0~1（由 thermalIntensity 计算）
+   *  - boiling 是否沸腾/剧烈汽化
+   *  - simClock 模拟时钟 s（晶格振动相位）
+   *  - liquidBounds {x0,y0,x1,y1} 液体区域（y0=液面，y1=杯底）
+   *  - airBounds {x0,y0,x1,y1} 气体自由飞行区域（烧杯不封顶时即画布）
+   *  - solidTop 固体表面 y 坐标
+   *  - fs, fl 固态/液态分数（fs=0 且 fl=0 时全气态，气体充满 airBounds）
+   *  - gasCapacity 空气容量（当前温度允许的最大气体粒子数）
+   *  - gasCount, snowCount 当前气体/雪花粒子数（引擎内部会同步增减）
+   *  - temp 当前温度 ℃
+   *  - melt 熔点 ℃（低于熔点且气体超载时凝华成雪花）
+   *  - onCondense 凝华回调（可选，用于事件记录）
+   */
+  update(dt, P) {
+    const { thermal, boiling, simClock } = P
+    const lb = P.liquidBounds
+    const ab = P.airBounds
+    const fullGas = P.fs === 0 && P.fl === 0
+
+    for (const p of this.particles) {
+      // ---- 固态：晶格锚点振动（温度越高振幅越大） ----
+      if (p.st === 'solid') {
+        latticeVibrate(p, simClock, 1.1 + 4.2 * thermal)
+        continue
+      }
+      // ---- 液态：无规则热运动；撞液面按容量决定穿出蒸发或弹回 ----
+      if (p.st === 'liquid') {
+        const target = (45 + 320 * thermal) * (boiling ? 1.5 : 1)
+        applyThermalMotion(p, dt, target)
+        // 左右杯壁 + 杯底：弹回
+        if (p.x < lb.x0 + p.size) { p.x = lb.x0 + p.size; p.vx = Math.abs(p.vx) * 0.8 }
+        if (p.x > lb.x1 - p.size) { p.x = lb.x1 - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
+        if (p.y > lb.y1 - p.size) { p.y = lb.y1 - p.size; p.vy = -Math.abs(p.vy) * 0.8 }
+        // 液面：空气未满 → 穿出成为水蒸气（带向上冲量）；已满 → 弹回
+        if (p.y < lb.y0 + p.size) {
+          if (P.gasCount < P.gasCapacity) {
+            p.st = 'gas'
+            P.gasCount++
+            p.y = lb.y0 - p.size - 1
+            // 穿出初速度接近气态目标速度，避免刚出液面就被随机换向拽回
+            const g0 = (70 + 480 * P.thermal) * (P.boiling ? 1.5 : 1)
+            p.vy = -(g0 * (0.6 + Math.random() * 0.4))
+            p.vx = (Math.random() - 0.5) * g0
+          } else {
+            p.y = lb.y0 + p.size
+            p.vy = Math.abs(p.vy) * 0.8
+          }
+        }
+        continue
+      }
+      // ---- 气态：画布内自由飞行（烧杯不封顶），撞画布边界反弹；撞液面按容量落回/凝华 ----
+      if (p.st === 'gas') {
+        const targetGas = (70 + 480 * thermal) * (boiling ? 1.5 : 1)
+        applyThermalMotion(p, dt, targetGas)
+        bounceInBox(p, ab.x0, ab.y0, ab.x1, ab.y1, 0.8)
+        // 液面碰撞：仅当粒子位于烧杯正上方且下探到液面高度
+        const inCup = p.x > lb.x0 + p.size && p.x < lb.x1 - p.size
+        if (!fullGas && inCup && p.y >= lb.y0 - p.size) {
+          if (P.gasCount > P.gasCapacity) {
+            // 空气超载：落回液体；低于熔点则凝华成雪花
+            P.gasCount--
+            if (P.temp < P.melt && P.snowCount < this.maxSnow) {
+              p.st = 'snow'
+              P.snowCount++
+              p.settled = false
+              p.vy = 0
+              p.vx = 0
+              if (P.onCondense) P.onCondense()
+            } else {
+              p.st = 'liquid'
+              p.y = lb.y0 + p.size + 1
+              p.vy = 15 + Math.random() * 20
+              p.vx = (Math.random() - 0.5) * 25
+            }
+          } else {
+            // 空气未满：弹回空气中（保持足够向上速度，避免滞留液面）
+            p.y = lb.y0 - p.size
+            p.vy = -Math.max(Math.abs(p.vy) * 0.8, targetGas * 0.5)
+          }
+        }
+        continue
+      }
+      // ---- 雪花（凝华）：缓慢飘落，落在固体表面/液面上停驻 ----
+      if (!p.settled) {
+        p.vy = Math.min(p.vy + 15 * dt, 20)
+        p.x += Math.sin(simClock * 1.6 + p.ph) * 16 * dt
+        p.y += p.vy * dt
+        if (p.x < lb.x0 + 8) p.x = lb.x0 + 8
+        if (p.x > lb.x1 - 8) p.x = lb.x1 - 8
+        const floorY = (P.fs > 0.02 ? P.solidTop : lb.y0) - 6
+        if (p.y > floorY) {
+          p.y = floorY
+          p.settled = true
+          p.vx = 0
+          p.vy = 0
+        }
+      }
     }
   }
 }

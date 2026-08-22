@@ -783,3 +783,94 @@ export function raySegmentIntersection(ox, oy, angleDeg, p1, p2) {
 export function pointDistance(ax, ay, bx, by) {
   return Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
 }
+
+// ==========================================
+// 模块10：热学与分子动理论
+// 【初中】物态变化、分子热运动  【高中铺垫】理想气体微观模型
+// ==========================================
+
+/**
+ * 热运动强度：温度映射到 0~1（决定分子运动剧烈程度）
+ * 【初中】温度越高分子热运动越剧烈
+ * @param {number} T 当前温度 ℃
+ * @param {number} tMin 温度下限 ℃（映射为 0）
+ * @param {number} tMax 温度上限 ℃（映射为 1）
+ */
+export function thermalIntensity(T, tMin, tMax) {
+  return clamp((T - tMin) / (tMax - tMin), 0, 1)
+}
+
+/**
+ * 无规则热运动一步：速度大小向目标速率收敛 + 方向随机旋转（布朗运动模型）
+ * 【初中】分子在永不停息地做无规则运动；温度越高运动越快
+ * 设计要点：
+ *  - 速度大小 ≈ targetSpeed（由温度决定），快速收敛，保证"温度高→运动快"直观可见
+ *  - 方向每帧随机旋转（慢换向），轨迹为平滑弯曲的随机游走，扩散自然
+ *  - 注意：不能再用"强阻尼+随机加速度"——阻尼会把稳态速度压到目标值的 1/5 以下
+ * @param {{x,y,vx,vy}} p 粒子对象（含 x/y/vx/vy，会被修改）
+ * @param {number} dt 帧时间差 s
+ * @param {number} targetSpeed 目标速率 px/s（由温度决定）
+ * @param {number} [turnRate=3] 方向随机旋转速率 rad/s（越大运动越"抖动"）
+ */
+export function applyThermalMotion(p, dt, targetSpeed, turnRate = 3) {
+  // 速度大小向目标速率收敛（避免强阻尼导致速度远低于目标）
+  const sp = Math.hypot(p.vx, p.vy)
+  if (sp > 0.001) {
+    const k = Math.min(1, dt * 10)
+    const scale = 1 + (targetSpeed / sp - 1) * k
+    p.vx *= scale
+    p.vy *= scale
+  } else {
+    const theta = Math.random() * Math.PI * 2
+    p.vx = Math.cos(theta) * targetSpeed
+    p.vy = Math.sin(theta) * targetSpeed
+  }
+  // 方向随机旋转（布朗运动换向）
+  const rot = (Math.random() - 0.5) * turnRate * dt
+  const cos = Math.cos(rot)
+  const sin = Math.sin(rot)
+  const vx = p.vx * cos - p.vy * sin
+  p.vy = p.vx * sin + p.vy * cos
+  p.vx = vx
+  // 位移
+  p.x += p.vx * dt
+  p.y += p.vy * dt
+}
+
+/**
+ * 矩形边界反弹（弹性碰撞，可设恢复系数）
+ * @returns {boolean} 是否发生碰撞
+ */
+export function bounceInBox(p, x0, y0, x1, y1, restitution = 0.8) {
+  let hit = false
+  if (p.x < x0 + p.size) { p.x = x0 + p.size; p.vx = Math.abs(p.vx) * restitution; hit = true }
+  if (p.x > x1 - p.size) { p.x = x1 - p.size; p.vx = -Math.abs(p.vx) * restitution; hit = true }
+  if (p.y < y0 + p.size) { p.y = y0 + p.size; p.vy = Math.abs(p.vy) * restitution; hit = true }
+  if (p.y > y1 - p.size) { p.y = y1 - p.size; p.vy = -Math.abs(p.vy) * restitution; hit = true }
+  return hit
+}
+
+/**
+ * 晶格振动：粒子在锚点附近做正弦振动（固态分子模型）
+ * 【初中】固态分子只能在平衡位置附近振动
+ * @param {{ax,ay,x,y,vx,vy,ph}} p 粒子对象（含锚点 ax/ay 与相位 ph）
+ * @param {number} clock 模拟时钟 s（振动相位随时间变化）
+ * @param {number} amplitude 振动幅度 px（温度越高越大）
+ */
+export function latticeVibrate(p, clock, amplitude) {
+  p.x = p.ax + Math.sin(clock * 2.1 + p.ph) * amplitude
+  p.y = p.ay + Math.cos(clock * 1.9 + p.ph * 1.6) * amplitude * 0.85
+  p.vx = 0
+  p.vy = 0
+}
+
+/**
+ * 统计指定状态的粒子数
+ * @param {Array} particles 粒子数组（含 st 状态字段）
+ * @param {string} state 状态：solid / liquid / gas / snow
+ */
+export function countByState(particles, state) {
+  let n = 0
+  for (const p of particles) if (p.st === state) n++
+  return n
+}

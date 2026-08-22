@@ -117,6 +117,8 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import ExperimentLayout from '@/layouts/ExperimentLayout.vue'
 import ExperimentCanvas from '@/components/ExperimentCanvas.vue'
 import { phaseChangeConfig } from '@/config/experiments/heat/phaseChange.js'
+import { ThermalParticleEngine } from '@/utils/physics/PhysicsEngine.js'
+import { thermalIntensity, countByState } from '@/utils/physics/physicsUtils.js'
 
 const config = phaseChangeConfig
 
@@ -369,10 +371,14 @@ function stepTemp(dt) {
 const N = 120
 const COLS = 12
 const ROWS = 10
+const MAX_SNOW = 15 // 凝华雪花数量上限（与 ThermalParticleEngine 的 maxSnow 一致）
 const particles = reactive([])
 const bubbles = reactive([])
 const pops = reactive([])
 const steam = reactive([])
+
+// 热学粒子引擎（分子运动 + 液面穿越判定，来自 PhysicsEngine）
+const thermalEngine = new ThermalParticleEngine(particles, { maxSnow: MAX_SNOW })
 
 let geo = null
 let simClock = 0
@@ -442,8 +448,7 @@ function initAnchors() {
   }
 }
 
-// 粒子运动更新（按状态：固态振动 / 液态无规则热运动 / 气态快速运动 / 雪花飘落）
-// 蒸发/液化/凝华全部由"粒子碰撞液面"触发：空气未满 → 穿出蒸发；空气超载 → 落回
+// 粒子运动更新：委托给 ThermalParticleEngine（分子运动 + 液面穿越判定）
 function updateParticles(dt) {
   const g = geo
   if (!g || particles.length !== N) return
@@ -451,124 +456,31 @@ function updateParticles(dt) {
   const s = substance.value
   const T = temp.value
   const boiling = phase.value === 'boiling' || phase.value === 'vaporizing'
-  // 热运动强度：-100℃~800℃ 映射 0~1，温度越高运动越剧烈
-  const thermal = clamp((T + 100) / 900, 0, 1)
-  const solidTop = g.liqBottom - (g.liqBottom - g.surfaceY) * f.fs
-  // 空气容量：当前温度下空气中最多能容纳的气体粒子数（fgTarget * N）
-  const tG = Math.round(f.fg * N)
+  const thermal = thermalIntensity(T, T_MIN, T_MAX)
   const melt = s.type === 'crystal' ? s.melt : s.soften[0]
-  // 每帧统计当前气体/雪花数（转换时同步增减，保证同帧内多次判断也准确）
-  let gasCount = 0
-  let snowCount = 0
-  for (const p of particles) {
-    if (p.st === 'gas') gasCount++
-    else if (p.st === 'snow') snowCount++
-  }
-
-  for (const p of particles) {
-    // 固态：晶格锚点附近振动，温度越高振幅越大（降温时趋于有序静止）
-    if (p.st === 'solid') {
-      const vib = 0.7 + 2.6 * thermal
-      p.x = p.ax + Math.sin(simClock * 2.1 + p.ph) * vib
-      p.y = p.ay + Math.cos(simClock * 1.9 + p.ph * 1.6) * vib * 0.85
-      p.vx = 0
-      p.vy = 0
-      continue
-    }
-    // 液态：混乱无序的热运动；碰撞液面时按空气容量决定"穿出蒸发"或"弹回"
-    if (p.st === 'liquid') {
-      const ag = (30 + 420 * thermal) * (boiling ? 1.8 : 1)
-      const cap = (25 + 180 * thermal) * (boiling ? 1.5 : 1)
-      p.vx += (Math.random() - 0.5) * ag * dt
-      p.vy += (Math.random() - 0.5) * ag * dt
-      p.x += p.vx * dt
-      p.y += p.vy * dt
-      p.vx *= 0.99
-      p.vy *= 0.99
-      const sp = Math.hypot(p.vx, p.vy)
-      if (sp > cap) { p.vx *= cap / sp; p.vy *= cap / sp }
-      if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
-      if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
-      if (p.y > g.liqBottom - p.size) { p.y = g.liqBottom - p.size; p.vy = -Math.abs(p.vy) * 0.8 }
-      if (p.y < g.surfaceY + p.size) {
-        // 撞到液面：空气未满 → 穿出成为水蒸气；空气已满 → 弹回液体
-        if (gasCount < tG) {
-          p.st = 'gas'
-          gasCount++
-          p.y = g.surfaceY - p.size - 1
-          p.vy = -(20 + Math.random() * 25)
-          p.vx = (Math.random() - 0.5) * 25
-        } else {
-          p.y = g.surfaceY + p.size
-          p.vy = Math.abs(p.vy) * 0.8
-        }
-      }
-      continue
-    }
-    // 气态：快速无规则运动；碰撞液面时按空气容量决定"落回液化/凝华"或"弹回"
-    if (p.st === 'gas') {
-      const fullGas = f.fs === 0 && f.fl === 0
-      const gasTop = g.by0 + p.size
-      const gasBot = fullGas ? g.liqBottom - p.size : g.surfaceY - p.size
-      const agGas = (60 + 500 * thermal) * (boiling ? 1.5 : 1)
-      const capGas = 40 + 320 * thermal
-      p.vx += (Math.random() - 0.5) * agGas * dt
-      p.vy += (Math.random() - 0.5) * agGas * dt
-      p.x += p.vx * dt
-      p.y += p.vy * dt
-      p.vx *= 0.99
-      p.vy *= 0.99
-      const sp = Math.hypot(p.vx, p.vy)
-      if (sp > capGas) { p.vx *= capGas / sp; p.vy *= capGas / sp }
-      if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
-      if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
-      if (p.y < gasTop) { p.y = gasTop; p.vy = Math.abs(p.vy) * 0.8 }
-      if (p.y > gasBot) {
-        // 撞到液面（全气态时为烧杯底）：空气超载 → 落回液体；低于熔点则凝华成雪花；未超载 → 弹回
-        if (gasCount > tG) {
-          gasCount--
-          if (T < melt && snowCount < MAX_SNOW) {
-            // 凝华：气态 → 雪花 ❄️
-            p.st = 'snow'
-            snowCount++
-            p.settled = false
-            p.vy = 0
-            p.vx = 0
-            if (!desublimed) {
-              events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始凝华（气态→固态，❄️雪花）`)
-              if (events.length > 30) events.pop()
-              desublimed = true
-            }
-          } else {
-            // 液化：落回液体
-            p.st = 'liquid'
-            p.y = g.surfaceY + p.size + 1
-            p.vy = 15 + Math.random() * 20
-            p.vx = (Math.random() - 0.5) * 25
-          }
-        } else {
-          p.y = gasBot
-          p.vy = -Math.abs(p.vy) * 0.8
-        }
-      }
-      continue
-    }
-    // 雪花（凝华）：缓慢飘落，落在固体表面/液面上停驻
-    if (!p.settled) {
-      p.vy = Math.min(p.vy + 15 * dt, 20)
-      p.x += Math.sin(simClock * 1.6 + p.ph) * 16 * dt
-      p.y += p.vy * dt
-      if (p.x < g.liqLeft + 8) p.x = g.liqLeft + 8
-      if (p.x > g.liqRight - 8) p.x = g.liqRight - 8
-      const floorY = (f.fs > 0.02 ? solidTop : g.surfaceY) - 6
-      if (p.y > floorY) {
-        p.y = floorY
-        p.settled = true
-        p.vx = 0
-        p.vy = 0
+  thermalEngine.update(dt, {
+    thermal,
+    boiling,
+    simClock,
+    liquidBounds: { x0: g.liqLeft, y0: g.surfaceY, x1: g.liqRight, y1: g.liqBottom },
+    // 烧杯不封顶：气体可在整个画布内逸散，撞画布边界才反弹
+    airBounds: { x0: 0, y0: 0, x1: canvasW.value, y1: canvasH.value },
+    solidTop: g.liqBottom - (g.liqBottom - g.surfaceY) * f.fs,
+    fs: f.fs,
+    fl: f.fl,
+    gasCapacity: Math.round(f.fg * N),
+    gasCount: countByState(particles, 'gas'),
+    snowCount: countByState(particles, 'snow'),
+    temp: T,
+    melt,
+    onCondense: () => {
+      if (!desublimed) {
+        events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始凝华（气态→固态，❄️雪花）`)
+        if (events.length > 30) events.pop()
+        desublimed = true
       }
     }
-  }
+  })
 }
 
 // ==========================================
@@ -576,7 +488,6 @@ function updateParticles(dt) {
 // 蒸发、液化、凝华已由 updateParticles 的液面碰撞驱动
 // ==========================================
 
-const MAX_SNOW = 15 // 雪花上限
 const K_PER_FRAME = 3 // 每帧每类最多转换数（平滑过渡）
 
 function reconcile() {
@@ -1185,10 +1096,24 @@ const drawScene = (ctx, state, utils) => {
   ctx.globalAlpha = 1
   ctx.restore()
 
-  // ===== 烧杯玻璃轮廓 =====
+  // ===== 烧杯玻璃轮廓（上方敞口，U 形） =====
   ctx.strokeStyle = 'rgba(70,110,150,0.75)'
   ctx.lineWidth = 3
-  roundRectPath(ctx, g.bx0, g.by0, g.bw, g.bh, 7)
+  ctx.beginPath()
+  ctx.moveTo(g.bx0, g.by0)
+  ctx.lineTo(g.bx0, g.by1 - 7)
+  ctx.quadraticCurveTo(g.bx0, g.by1, g.bx0 + 7, g.by1)
+  ctx.lineTo(g.bx1 - 7, g.by1)
+  ctx.quadraticCurveTo(g.bx1, g.by1, g.bx1, g.by1 - 7)
+  ctx.lineTo(g.bx1, g.by0)
+  ctx.stroke()
+  // 杯口沿（左右两端外翻小凸缘）
+  ctx.lineWidth = 4
+  ctx.beginPath()
+  ctx.moveTo(g.bx0 - 7, g.by0)
+  ctx.lineTo(g.bx0, g.by0)
+  ctx.moveTo(g.bx1, g.by0)
+  ctx.lineTo(g.bx1 + 7, g.by0)
   ctx.stroke()
   // 玻璃高光
   ctx.strokeStyle = 'rgba(255,255,255,0.85)'
