@@ -50,8 +50,12 @@ const chapterData = {
       { id: 'efficiency', num: '07', name: '简单机械效率', description: '有用功、额外功与机械效率' , status: 'done'}
     ]
   },
-  // 其余章节后续逐步补充
-  heat: { title: '热学', experiments: [] },
+  heat: {
+    title: '热学',
+    experiments: [
+      { id: 'phase-change', num: '01', name: '物态变化综合实验', description: '酒精灯加热/冷冻室降温：观察熔化、凝固、沸腾、液化与晶体/非晶体的区别', status: 'done' }
+    ]
+  },
   acoustics: {
     title: '声学',
     experiments: [
