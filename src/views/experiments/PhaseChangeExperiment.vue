@@ -443,14 +443,27 @@ function initAnchors() {
 }
 
 // 粒子运动更新（按状态：固态振动 / 液态无规则热运动 / 气态快速运动 / 雪花飘落）
+// 蒸发/液化/凝华全部由"粒子碰撞液面"触发：空气未满 → 穿出蒸发；空气超载 → 落回
 function updateParticles(dt) {
   const g = geo
   if (!g || particles.length !== N) return
   const f = fractions.value
+  const s = substance.value
+  const T = temp.value
   const boiling = phase.value === 'boiling' || phase.value === 'vaporizing'
   // 热运动强度：-100℃~800℃ 映射 0~1，温度越高运动越剧烈
-  const thermal = clamp((temp.value + 100) / 900, 0, 1)
+  const thermal = clamp((T + 100) / 900, 0, 1)
   const solidTop = g.liqBottom - (g.liqBottom - g.surfaceY) * f.fs
+  // 空气容量：当前温度下空气中最多能容纳的气体粒子数（fgTarget * N）
+  const tG = Math.round(f.fg * N)
+  const melt = s.type === 'crystal' ? s.melt : s.soften[0]
+  // 每帧统计当前气体/雪花数（转换时同步增减，保证同帧内多次判断也准确）
+  let gasCount = 0
+  let snowCount = 0
+  for (const p of particles) {
+    if (p.st === 'gas') gasCount++
+    else if (p.st === 'snow') snowCount++
+  }
 
   for (const p of particles) {
     // 固态：晶格锚点附近振动，温度越高振幅越大（降温时趋于有序静止）
@@ -462,7 +475,7 @@ function updateParticles(dt) {
       p.vy = 0
       continue
     }
-    // 液态：混乱无序的热运动，均匀分布在液体区域
+    // 液态：混乱无序的热运动；碰撞液面时按空气容量决定"穿出蒸发"或"弹回"
     if (p.st === 'liquid') {
       const ag = (30 + 420 * thermal) * (boiling ? 1.8 : 1)
       const cap = (25 + 180 * thermal) * (boiling ? 1.5 : 1)
@@ -477,10 +490,22 @@ function updateParticles(dt) {
       if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
       if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
       if (p.y > g.liqBottom - p.size) { p.y = g.liqBottom - p.size; p.vy = -Math.abs(p.vy) * 0.8 }
-      if (p.y < g.surfaceY + p.size) { p.y = g.surfaceY + p.size; p.vy = Math.abs(p.vy) * 0.8 }
+      if (p.y < g.surfaceY + p.size) {
+        // 撞到液面：空气未满 → 穿出成为水蒸气；空气已满 → 弹回液体
+        if (gasCount < tG) {
+          p.st = 'gas'
+          gasCount++
+          p.y = g.surfaceY - p.size - 1
+          p.vy = -(20 + Math.random() * 25)
+          p.vx = (Math.random() - 0.5) * 25
+        } else {
+          p.y = g.surfaceY + p.size
+          p.vy = Math.abs(p.vy) * 0.8
+        }
+      }
       continue
     }
-    // 气态：快速无规则运动（全气态时充满整个烧杯，否则在液面上方）
+    // 气态：快速无规则运动；碰撞液面时按空气容量决定"落回液化/凝华"或"弹回"
     if (p.st === 'gas') {
       const fullGas = f.fs === 0 && f.fl === 0
       const gasTop = g.by0 + p.size
@@ -498,7 +523,34 @@ function updateParticles(dt) {
       if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
       if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
       if (p.y < gasTop) { p.y = gasTop; p.vy = Math.abs(p.vy) * 0.8 }
-      if (p.y > gasBot) { p.y = gasBot; p.vy = -Math.abs(p.vy) * 0.8 }
+      if (p.y > gasBot) {
+        // 撞到液面（全气态时为烧杯底）：空气超载 → 落回液体；低于熔点则凝华成雪花；未超载 → 弹回
+        if (gasCount > tG) {
+          gasCount--
+          if (T < melt && snowCount < MAX_SNOW) {
+            // 凝华：气态 → 雪花 ❄️
+            p.st = 'snow'
+            snowCount++
+            p.settled = false
+            p.vy = 0
+            p.vx = 0
+            if (!desublimed) {
+              events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始凝华（气态→固态，❄️雪花）`)
+              if (events.length > 30) events.pop()
+              desublimed = true
+            }
+          } else {
+            // 液化：落回液体
+            p.st = 'liquid'
+            p.y = g.surfaceY + p.size + 1
+            p.vy = 15 + Math.random() * 20
+            p.vx = (Math.random() - 0.5) * 25
+          }
+        } else {
+          p.y = gasBot
+          p.vy = -Math.abs(p.vy) * 0.8
+        }
+      }
       continue
     }
     // 雪花（凝华）：缓慢飘落，落在固体表面/液面上停驻
@@ -520,8 +572,8 @@ function updateParticles(dt) {
 }
 
 // ==========================================
-// 状态迁移（蒸发 / 液化 / 升华 / 凝华 / 熔化 / 凝固）
-// 每帧把各状态粒子数校正到目标比例，形成动态平衡
+// 状态校正：升华（固态→气态）/ 熔化 / 凝固 / 雪花融化
+// 蒸发、液化、凝华已由 updateParticles 的液面碰撞驱动
 // ==========================================
 
 const MAX_SNOW = 15 // 雪花上限
@@ -534,7 +586,7 @@ function reconcile() {
   const T = temp.value
   const f = fractions.value
   const melt = s.type === 'crystal' ? s.melt : s.soften[0]
-  const tG = Math.round(f.fg * N) // 目标气体数
+  const tG = Math.round(f.fg * N) // 空气容量（目标气体数）
   const tS = Math.round(f.fs * N) // 目标晶格固态数
 
   const count = (st) => particles.reduce((n, p) => n + (p.st === st ? 1 : 0), 0)
@@ -551,67 +603,29 @@ function reconcile() {
   const nSnow = count('snow')
   const nLiquid = N - nG - nS - nSnow
 
+  // ---- 升华：固态表面粒子直接逃逸到空气（固体不碰撞液面，由容量不足触发） ----
   let madeSublime = false
-  let madeDesublime = false
-
-  // ---- 气体校正（蒸发/液化/升华/凝华） ----
-  let k = 0
-  if (nG < tG) {
-    // 需要更多气体：液态蒸发 / 固态升华
+  if (T < melt && nG < tG) {
+    let k = 0
     while (k < K_PER_FRAME) {
-      const liquid = pick('liquid', (a, b) => a.y < b.y)
-      const solid = pick('solid', (a, b) => a.y < b.y)
-      if (T < melt && solid) {
-        // 固态升华（直接跳过液态）
-        solid.st = 'gas'
-        solid.y = (f.fs > 0.02 ? g.liqBottom - (g.liqBottom - g.surfaceY) * f.fs : g.surfaceY) - 6
-        solid.vy = -(20 + Math.random() * 30)
-        solid.vx = (Math.random() - 0.5) * 30
-        madeSublime = true
-        k++
-        continue
-      }
-      if (liquid) {
-        // 液态蒸发（穿越液面）
-        liquid.st = 'gas'
-        liquid.y = g.surfaceY - liquid.size - 2
-        liquid.vy = -(15 + Math.random() * 25)
-        liquid.vx = (Math.random() - 0.5) * 25
-        k++
-        continue
-      }
-      break
-    }
-  } else if (nG > tG) {
-    // 气体过多：低于熔点凝华成雪花，否则液化落回
-    while (k < K_PER_FRAME) {
-      const gas = pick('gas', (a, b) => a.y < b.y)
-      if (!gas) break
-      if (T < melt && nSnow < MAX_SNOW) {
-        // 凝华：气态 → 雪花 ❄️
-        gas.st = 'snow'
-        gas.settled = false
-        gas.vy = 0
-        gas.vx = 0
-        madeDesublime = true
-      } else if (nSnow >= MAX_SNOW) {
-        // 雪花满员：直接凝华到固态表面（并入晶格）
-        gas.st = 'solid'
-        gas.x = gas.ax
-        gas.y = gas.ay
-      } else {
-        // 液化：落回液体
-        gas.st = 'liquid'
-        gas.y = g.surfaceY + gas.size + 2
-        gas.vy = 15 + Math.random() * 20
-        gas.vx = (Math.random() - 0.5) * 25
-      }
+      const solid = pick('solid', (a, b) => a.y < b.y) // 最靠近表面的固态
+      if (!solid) break
+      solid.st = 'gas'
+      solid.y = (f.fs > 0.02 ? g.liqBottom - (g.liqBottom - g.surfaceY) * f.fs : g.surfaceY) - 6
+      solid.vy = -(20 + Math.random() * 30)
+      solid.vx = (Math.random() - 0.5) * 30
+      madeSublime = true
       k++
     }
   }
+  if (madeSublime && !sublimed) {
+    events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始升华（固态→气态）`)
+    if (events.length > 30) events.pop()
+    sublimed = true
+  }
 
   // ---- 固态校正（熔化/凝固） ----
-  k = 0
+  let k = 0
   if (nS < tS && nLiquid > 0) {
     // 凝固：液态粒子锁定到晶格（从底部锚点开始）
     while (k < K_PER_FRAME && nS + k < tS) {
@@ -646,18 +660,6 @@ function reconcile() {
         p.vy = 10
       }
     }
-  }
-
-  // ---- 升华 / 凝华事件记录 ----
-  if (madeSublime && !sublimed) {
-    events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始升华（固态→气态）`)
-    if (events.length > 30) events.pop()
-    sublimed = true
-  }
-  if (madeDesublime && !desublimed) {
-    events.unshift(`[${simTime.value.toFixed(1)}s] ${s.name}：开始凝华（气态→固态，❄️雪花）`)
-    if (events.length > 30) events.pop()
-    desublimed = true
   }
 }
 
