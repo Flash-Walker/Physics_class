@@ -343,9 +343,9 @@ function stepTemp(dt) {
 // 粒子系统（固 / 液 / 气 三态）
 // ==========================================
 
-const N = 72
-const COLS = 9
-const ROWS = 8
+const N = 120
+const COLS = 12
+const ROWS = 10
 const particles = reactive([])
 const bubbles = reactive([])
 const pops = reactive([])
@@ -371,7 +371,7 @@ function getGeo(w, h) {
   }
 }
 
-// 初始化粒子锚点（固态晶格位置；非晶体带随机错位）
+// 初始化粒子：锚点（固态晶格位置；非晶体带随机错位）+ 液态初始随机分布
 function initAnchors() {
   const g = getGeo(canvasW.value, canvasH.value)
   if (canvasW.value < 60 || canvasH.value < 60) return
@@ -387,71 +387,77 @@ function initAnchors() {
     const col = i % COLS
     const ax = g.liqLeft + padX + col * cellW + cellW / 2 + (Math.random() - 0.5) * jitter
     const ay = g.liqBottom - padY - row * cellH - cellH / 2 + (Math.random() - 0.5) * jitter
+    // 粒子本身要小（与气泡明显区分），尺寸固定不随格子缩放
+    const size = 2.4 + Math.random() * 0.9
+    // 液态初始位置：在液体区域内均匀随机分布（不沉底）
+    const x = g.liqLeft + size + Math.random() * (g.liqRight - g.liqLeft - size * 2)
+    const y = g.surfaceY + size + Math.random() * (g.liqBottom - g.surfaceY - size * 2)
     particles.push(reactive({
-      ax, ay, x: ax, y: ay, vx: 0, vy: 0,
+      ax, ay, x, y, vx: 0, vy: 0,
       ph: Math.random() * Math.PI * 2,
-      size: Math.min(cellW, cellH) * 0.4
+      size
     }))
   }
 }
 
-// 粒子三态更新
+// 粒子三态更新（无规则热运动：无重力、方向随机、弹性碰壁，速度随温度变化）
 function updateParticles(dt) {
   const g = geo
   if (!g || particles.length !== N) return
   const f = fractions.value
-  const s = substance.value
   const nSolid = Math.round(f.fs * N)
   const nLiquid = Math.round(f.fl * N)
   const boiling = phase.value === 'boiling' || phase.value === 'vaporizing'
-  const nearMelt = s.type === 'crystal' && Math.abs(temp.value - s.melt) < 5
-  const vibAmp = nearMelt ? 2.8 : 1.3
+  // 热运动强度：-100℃~800℃ 映射 0~1，温度越高运动越剧烈
+  const thermal = clamp((temp.value + 100) / 900, 0, 1)
 
   for (let i = 0; i < N; i++) {
     const p = particles[i]
-    // 固态：晶格点附近振动
+    // 固态：晶格锚点附近振动，温度越高振幅越大（降温时趋于有序静止）
     if (i < nSolid) {
-      p.x = p.ax + Math.sin(simClock * 2.1 + p.ph) * vibAmp
-      p.y = p.ay + Math.cos(simClock * 1.9 + p.ph * 1.6) * vibAmp * 0.85
+      const vib = 0.7 + 2.6 * thermal
+      p.x = p.ax + Math.sin(simClock * 2.1 + p.ph) * vib
+      p.y = p.ay + Math.cos(simClock * 1.9 + p.ph * 1.6) * vib * 0.85
       p.vx = 0
       p.vy = 0
       continue
     }
-    // 液态：自由运动 + 无规则扰动（沸腾时剧烈）
+    // 液态：混乱无序的热运动，均匀分布在液体区域
     if (i < nSolid + nLiquid) {
-      const ag = boiling ? 110 : 26
+      const ag = (30 + 420 * thermal) * (boiling ? 1.8 : 1)
+      const cap = (25 + 180 * thermal) * (boiling ? 1.5 : 1)
       p.vx += (Math.random() - 0.5) * ag * dt
       p.vy += (Math.random() - 0.5) * ag * dt
-      p.vy += 150 * dt
       p.x += p.vx * dt
       p.y += p.vy * dt
-      p.vx *= 0.988
-      p.vy *= 0.988
+      p.vx *= 0.99
+      p.vy *= 0.99
       const sp = Math.hypot(p.vx, p.vy)
-      const cap = boiling ? 140 : 75
       if (sp > cap) { p.vx *= cap / sp; p.vy *= cap / sp }
-      if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.55 }
-      if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.55 }
-      if (p.y > g.liqBottom - p.size) { p.y = g.liqBottom - p.size; p.vy = -Math.abs(p.vy) * 0.5 }
-      if (p.y < g.surfaceY + p.size) { p.y = g.surfaceY + p.size; p.vy = Math.abs(p.vy) * 0.35 }
+      if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
+      if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
+      if (p.y > g.liqBottom - p.size) { p.y = g.liqBottom - p.size; p.vy = -Math.abs(p.vy) * 0.8 }
+      if (p.y < g.surfaceY + p.size) { p.y = g.surfaceY + p.size; p.vy = Math.abs(p.vy) * 0.8 }
       continue
     }
     // 气态：快速无规则运动（全气态时充满整个烧杯，否则在液面上方）
     const fullGas = f.fs === 0 && f.fl === 0
     const gasTop = g.by0 + p.size
     const gasBot = fullGas ? g.liqBottom - p.size : g.surfaceY - p.size
-    p.vx += (Math.random() - 0.5) * 70 * dt
-    p.vy += (Math.random() - 0.5) * 70 * dt - 22 * dt
+    const agGas = (60 + 500 * thermal) * (boiling ? 1.5 : 1)
+    const capGas = 40 + 320 * thermal
+    p.vx += (Math.random() - 0.5) * agGas * dt
+    p.vy += (Math.random() - 0.5) * agGas * dt
     p.x += p.vx * dt
     p.y += p.vy * dt
-    p.vx *= 0.995
-    p.vy *= 0.995
+    p.vx *= 0.99
+    p.vy *= 0.99
     const sp = Math.hypot(p.vx, p.vy)
-    if (sp > 160) { p.vx *= 160 / sp; p.vy *= 160 / sp }
-    if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.6 }
-    if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.6 }
-    if (p.y < gasTop) { p.y = gasTop; p.vy = Math.abs(p.vy) * 0.6 }
-    if (p.y > gasBot) { p.y = gasBot; p.vy = -Math.abs(p.vy) * 0.6 }
+    if (sp > capGas) { p.vx *= capGas / sp; p.vy *= capGas / sp }
+    if (p.x < g.liqLeft + p.size) { p.x = g.liqLeft + p.size; p.vx = Math.abs(p.vx) * 0.8 }
+    if (p.x > g.liqRight - p.size) { p.x = g.liqRight - p.size; p.vx = -Math.abs(p.vx) * 0.8 }
+    if (p.y < gasTop) { p.y = gasTop; p.vy = Math.abs(p.vy) * 0.8 }
+    if (p.y > gasBot) { p.y = gasBot; p.vy = -Math.abs(p.vy) * 0.8 }
   }
 }
 
@@ -478,7 +484,7 @@ function updateBubbles(dt) {
       bubbles.push({
         x,
         y: g.liqBottom - 3,
-        r: boiling ? 1.8 + Math.random() * 2.6 : 5 + Math.random() * 4,
+        r: boiling ? 3 + Math.random() * 3 : 5 + Math.random() * 4,
         kind: boiling ? 'boil' : 'pre',
         vy: boiling ? 60 + Math.random() * 25 : 38 + Math.random() * 14,
         wob: Math.random() * Math.PI * 2
@@ -937,20 +943,34 @@ const drawScene = (ctx, state, utils) => {
   }
   ctx.globalAlpha = 1
 
-  // 三态粒子
+  // 三态粒子（小圆点 = 分子模型）
   const nSolid = Math.round(f.fs * N)
   const nLiquid = Math.round(f.fl * N)
   for (let i = 0; i < N; i++) {
     const p = particles[i]
-    let col = s.particleLiquid
-    let alpha = 0.95
-    if (i < nSolid) col = s.particleSolid
-    else if (i >= nSolid + nLiquid) { col = s.particleGas; alpha = 0.55 }
-    ctx.globalAlpha = alpha
-    ctx.fillStyle = col
-    ctx.beginPath()
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
-    ctx.fill()
+    if (i < nSolid) {
+      // 固态：实心 + 细描边，突出"被锁定"
+      ctx.globalAlpha = 0.95
+      ctx.fillStyle = s.particleSolid
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(60,80,110,0.35)'
+      ctx.lineWidth = 0.8
+      ctx.stroke()
+    } else if (i < nSolid + nLiquid) {
+      ctx.globalAlpha = 0.9
+      ctx.fillStyle = s.particleLiquid
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+      ctx.fill()
+    } else {
+      ctx.globalAlpha = 0.5
+      ctx.fillStyle = s.particleGas
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2)
+      ctx.fill()
+    }
   }
   ctx.globalAlpha = 1
   ctx.restore()
