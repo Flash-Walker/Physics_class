@@ -36,7 +36,7 @@
 <script setup>
 import ChapterCard from '@/components/ChapterCard.vue'
 import { ref } from 'vue'
-import donateQr from '@/img/R.jpg'
+import donateQr from '@/img/WeChatPayQR.png'
 
 
 // ===== 打赏弹窗状态 =====
