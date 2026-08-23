@@ -874,3 +874,90 @@ export function countByState(particles, state) {
   for (const p of particles) if (p.st === state) n++
   return n
 }
+
+// ==========================================
+// 模块11：扩散统计
+// 【初中】分子热运动与扩散：混合度 / 扩散度 / 平均速率
+// 所有函数均为纯函数，无副作用
+// ==========================================
+
+/**
+ * 混合度 / 扩散度：把区域划成网格，统计两类粒子浓度分布方差并归一化
+ * 【初中】扩散是自发过程：粒子从浓度高的地方向浓度低的地方运动，最终均匀分布
+ * 原理：完全分离时格子间浓度差异最大（方差最大），完全均匀时方差为 0。
+ *       mixingDegree = 1 - 方差 / 最大可能方差 → 0（未混合）~ 1（完全均匀）
+ * @param {Array} particles 粒子数组（含 x/y 坐标）
+ * @param {function|string} isKindA 判断"种类 A"：函数 (p)=>bool，或粒子字段名
+ * @param {{x0:number,y0:number,x1:number,y1:number}} bounds 统计区域
+ * @param {number} [gridCols=8] 网格列数（行数按区域比例自适应）
+ * @returns {number} 0~1 的混合度（1 = 完全均匀）
+ */
+export function mixingDegree(particles, isKindA, bounds, gridCols = 8) {
+  const { x0, y0, x1, y1 } = bounds
+  if (x1 - x0 < 4 || y1 - y0 < 4) return 0
+  const pred = typeof isKindA === 'function' ? isKindA : (p) => p[isKindA]
+  const cols = Math.max(2, gridCols)
+  let rows = Math.max(2, Math.round(cols * ((y1 - y0) / (x1 - x0))))
+  // 行数强制为偶数：避免网格行恰好跨过"上下分界"（如双瓶隔板）导致初始值不干净
+  if (rows % 2 === 1) rows += 1
+
+  let totalA = 0
+  let total = 0
+  for (const p of particles) {
+    if (p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) continue
+    total++
+    if (pred(p)) totalA++
+  }
+  if (total < 4 || totalA === 0 || totalA === total) return 0
+  const pa = totalA / total // 全局比例
+
+  // 各格子内 A 的占比
+  const cellCount = cols * rows
+  let varSum = 0
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      const cx0 = x0 + ((x1 - x0) * c) / cols
+      const cx1 = x0 + ((x1 - x0) * (c + 1)) / cols
+      const cy0 = y0 + ((y1 - y0) * r) / rows
+      const cy1 = y0 + ((y1 - y0) * (r + 1)) / rows
+      let na = 0
+      let nt = 0
+      for (const p of particles) {
+        if (p.x >= cx0 && p.x < cx1 && p.y >= cy0 && p.y < cy1) {
+          nt++
+          if (pred(p)) na++
+        }
+      }
+      if (nt > 0) {
+        const d = na / nt - pa // 该格子占比与全局占比的偏差
+        varSum += d * d
+      } else {
+        // 空格子：该格 A 占比为 0（粒子尚未到达 = 未混合，同样携带信息）
+        varSum += pa * pa
+      }
+    }
+  }
+  const variance = varSum / cellCount
+  // 最大可能方差：每格要么全 A 要么全 B（伯努利方差上界）
+  const varMax = pa * (1 - pa)
+  if (varMax <= 1e-6) return 0
+  return clamp(1 - variance / varMax, 0, 1)
+}
+
+/**
+ * 粒子平均速率（px/s）
+ * 【初中】温度越高分子运动越剧烈 → 平均速率越大
+ * @param {Array} particles 粒子数组（含 vx/vy）
+ * @param {function} [filter] 可选筛选函数 (p)=>bool
+ * @returns {number} 平均速率 px/s
+ */
+export function avgSpeed(particles, filter = null) {
+  let sum = 0
+  let n = 0
+  for (const p of particles) {
+    if (filter && !filter(p)) continue
+    sum += Math.hypot(p.vx, p.vy)
+    n++
+  }
+  return n ? sum / n : 0
+}

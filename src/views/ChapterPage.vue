@@ -53,7 +53,8 @@ const chapterData = {
   heat: {
     title: '热学',
     experiments: [
-      { id: 'phase-change', num: '01', name: '物态变化综合实验', description: '酒精灯加热/冷冻室降温：观察熔化、凝固、沸腾、液化与晶体/非晶体的区别', status: 'done' }
+      { id: 'phase-change', num: '01', name: '物态变化综合实验', description: '酒精灯加热/冷冻室降温：观察熔化、凝固、沸腾、液化与晶体/非晶体的区别', status: 'done' },
+      { id: 'molecular-motion', num: '02', name: '分子热运动与扩散', description: '气体扩散（NO₂与空气）+ 墨水冷热水对比：分子无规则运动与温度对扩散的影响', status: 'done' }
     ]
   },
   acoustics: {

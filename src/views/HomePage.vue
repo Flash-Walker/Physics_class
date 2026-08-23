@@ -55,8 +55,8 @@ const chapterList = [
     id: 'heat',
     icon: '🔥',
     title: '热学',
-    description: '物态变化综合实验：熔化、凝固、沸腾、液化',
-    count: 1
+    description: '物态变化、分子热运动与扩散实验',
+    count: 2
   },
   {
     id: 'acoustics',

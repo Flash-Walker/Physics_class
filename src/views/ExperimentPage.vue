@@ -40,6 +40,7 @@ const experimentComponents = {
   'electricity/circuit-lab': defineAsyncComponent(() => import('./experiments/CircuitLabExperiment.vue')),
   // 热学实验
   'heat/phase-change': defineAsyncComponent(() => import('./experiments/PhaseChangeExperiment.vue')),
+  'heat/molecular-motion': defineAsyncComponent(() => import('./experiments/MolecularMotionExperiment.vue')),
 }
 
 // 当前实验组件
@@ -65,7 +66,10 @@ const experimentName = computed(() => {
     'convex-lens': '凸透镜成像规律',
     dispersion: '光的色散',
     'sound-wave': '声音的波形与频谱',
-    'echo-ranging': '回声与声呐测距'
+    'echo-ranging': '回声与声呐测距',
+    'circuit-lab': '电路搭建与欧姆定律',
+    'phase-change': '物态变化综合实验',
+    'molecular-motion': '分子热运动与扩散'
   }
   return nameMap[route.params.expId] || '物理实验'
 })
