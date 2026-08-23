@@ -961,3 +961,134 @@ export function avgSpeed(particles, filter = null) {
   }
   return n ? sum / n : 0
 }
+
+/* ===== 模块 12：四冲程热机循环 ===== */
+// 曲轴转角 theta 约定：0~720° 为一个完整工作循环（4 冲程 × 180°）
+// 冲程顺序：intake(吸气 0-180) → compress(压缩 180-360) → power(做功 360-540) → exhaust(排气 540-720)
+const STROKE_NAMES = ['intake', 'compress', 'power', 'exhaust']
+
+/**
+ * 由曲轴转角判定当前冲程
+ * @param {number} theta 曲轴转角（度），会自动归一化到 [0, 720)
+ * @returns {'intake'|'compress'|'power'|'exhaust'}
+ */
+export function pistonPhase(theta) {
+  const t = ((theta % 720) + 720) % 720
+  return STROKE_NAMES[Math.floor(t / 180)]
+}
+
+/**
+ * 由曲轴转角计算活塞位置
+ * @param {number} theta 曲轴转角（度）
+ * @returns {number} 0=上止点（缸盖侧），1=下止点
+ */
+export function pistonPos(theta) {
+  const t = ((theta % 720) + 720) % 720
+  const phase = Math.floor(t / 180)
+  const k = (t - phase * 180) / 180 // 冲程内进度 0→1
+  // 吸气/做功：下行；压缩/排气：上行
+  return phase === 0 || phase === 2 ? k : 1 - k
+}
+
+/**
+ * 活塞冲程内进度（用于粒子/温度曲线插值）
+ * @param {number} theta 曲轴转角（度）
+ * @returns {number} 当前冲程内进度 0→1
+ */
+export function strokeProgress(theta) {
+  const t = ((theta % 720) + 720) % 720
+  return (t % 180) / 180
+}
+
+/**
+ * 气门状态表：由冲程判定进/排气门开合
+ * @param {'intake'|'compress'|'power'|'exhaust'} phase
+ * @returns {{intakeOpen: boolean, exhaustOpen: boolean}}
+ */
+export function valveState(phase) {
+  return {
+    intakeOpen: phase === 'intake',
+    exhaustOpen: phase === 'exhaust'
+  }
+}
+
+/* ===== 模块 13：比热容与热传递 ===== */
+// 教材：人教版九年级上册 §13.3 比热容
+// 模型约定：加热器功率 P(W) × 时间 t(s) × 效率 η → 液体实际吸收热量 Q = ηPt
+// 升温：ΔT = Q / (c·m)；自然冷却用牛顿冷却定律：dT/dt = -k(T-T_env)/(c·m)
+
+/**
+ * 吸收热量：Q = η·P·t
+ * @param {number} powerW 加热器功率（瓦）
+ * @param {number} timeS 加热时间（秒）
+ * @param {number} eta 能量传输效率 0~1
+ * @returns {number} 实际进入液体的热量（焦耳）
+ */
+export function heatAbsorbed(powerW, timeS, eta = 1) {
+  return eta * powerW * timeS
+}
+
+/**
+ * 升温幅度：ΔT = Q / (c·m)
+ * @param {number} heatJ 吸收的热量（焦耳）
+ * @param {number} massKg 液体质量（千克）
+ * @param {number} specificHeat 比热容（J/(kg·℃)）
+ * @returns {number} 温度升高（℃）
+ */
+export function tempRise(heatJ, massKg, specificHeat) {
+  if (massKg <= 0 || specificHeat <= 0) return 0
+  return heatJ / (massKg * specificHeat)
+}
+
+/**
+ * 加热后的温度：T = T₀ + ηPt/(c·m)
+ * @param {number} t0 初始温度（℃）
+ * @param {number} powerW 加热器功率（瓦）
+ * @param {number} timeS 加热时间（秒）
+ * @param {number} massKg 液体质量（千克）
+ * @param {number} specificHeat 比热容（J/(kg·℃)）
+ * @param {number} eta 能量传输效率 0~1
+ * @returns {number} 加热后的温度（℃）
+ */
+export function tempAfterHeating(t0, powerW, timeS, massKg, specificHeat, eta = 1) {
+  return t0 + tempRise(heatAbsorbed(powerW, timeS, eta), massKg, specificHeat)
+}
+
+/**
+ * 由实验数据反算比热容：c = Q / (m·ΔT)
+ * @param {number} heatJ 吸收的热量（焦耳）
+ * @param {number} massKg 液体质量（千克）
+ * @param {number} deltaT 温度升高（℃）
+ * @returns {number} 比热容（J/(kg·℃)）
+ */
+export function specificHeatFromData(heatJ, massKg, deltaT) {
+  if (massKg <= 0 || deltaT <= 0) return 0
+  return heatJ / (massKg * deltaT)
+}
+
+/**
+ * 牛顿冷却一步：T -= k·(T-T_env)/(c·m)·dt
+ * @param {number} temp 当前温度（℃）
+ * @param {number} envTemp 环境温度（℃）
+ * @param {number} lossCoeff 散热系数 k（W/℃，即每摄氏度温差每秒散失的热量）
+ * @param {number} massKg 液体质量（千克）
+ * @param {number} specificHeat 比热容（J/(kg·℃)）
+ * @param {number} dt 时间步长（秒）
+ * @returns {number} 冷却后的温度（℃）
+ */
+export function coolStep(temp, envTemp, lossCoeff, massKg, specificHeat, dt) {
+  if (massKg <= 0 || specificHeat <= 0) return temp
+  const dT = -(lossCoeff * (temp - envTemp) / (massKg * specificHeat)) * dt
+  return temp + dT
+}
+
+/**
+ * 昼夜温差（生活应用场景）：一个加热-冷却周期后的温度波动幅度
+ * @param {number} t0 起始温度（℃）
+ * @param {number} peakTemp 白天加热达到的最高温（℃）
+ * @param {number} nightTemp 夜晚冷却后的最低温（℃）
+ * @returns {number} 昼夜温差 = 最高温 - 最低温（℃）
+ */
+export function dayNightRange(peakTemp, nightTemp) {
+  return Math.max(0, peakTemp - nightTemp)
+}

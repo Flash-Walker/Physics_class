@@ -41,6 +41,8 @@ const experimentComponents = {
   // 热学实验
   'heat/phase-change': defineAsyncComponent(() => import('./experiments/PhaseChangeExperiment.vue')),
   'heat/molecular-motion': defineAsyncComponent(() => import('./experiments/MolecularMotionExperiment.vue')),
+  'heat/specific-heat-capacity': defineAsyncComponent(() => import('./experiments/SpecificHeatCapacityExperiment.vue')),
+  'heat/heat-engine': defineAsyncComponent(() => import('./experiments/HeatEngineExperiment.vue')),
 }
 
 // 当前实验组件
@@ -69,7 +71,9 @@ const experimentName = computed(() => {
     'echo-ranging': '回声与声呐测距',
     'circuit-lab': '电路搭建与欧姆定律',
     'phase-change': '物态变化综合实验',
-    'molecular-motion': '分子热运动与扩散'
+    'molecular-motion': '分子热运动与扩散',
+    'specific-heat-capacity': '比热容：吸热能力探究',
+    'heat-engine': '热机：四冲程工作循环'
   }
   return nameMap[route.params.expId] || '物理实验'
 })

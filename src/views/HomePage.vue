@@ -55,8 +55,8 @@ const chapterList = [
     id: 'heat',
     icon: '🔥',
     title: '热学',
-    description: '物态变化、分子热运动与扩散实验',
-    count: 2
+    description: '物态变化、分子热运动与扩散、比热容、热机四冲程实验',
+    count: 4
   },
   {
     id: 'acoustics',
