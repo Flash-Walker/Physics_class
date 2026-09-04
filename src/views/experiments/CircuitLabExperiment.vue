@@ -98,21 +98,21 @@
                   <td>{{ nameOf(c.type) }}</td>
                   <td>
                     <template v-if="meterOf(c) && c.type === 'ohmmeter'">
-                      <template v-if="meterOf(c).tip">—</template>
+                      <template v-if="meterOf(c).tip">-</template>
                       <template v-else-if="meterOf(c).inf">∞</template>
                       <template v-else>{{ meterOf(c).reading >= 1000 ? (meterOf(c).reading / 1000).toFixed(1) + 'k' : meterOf(c).reading.toFixed(1) }}{{ meterOf(c).unit }}</template>
                     </template>
                     <template v-else-if="meterOf(c)">{{ meterOf(c).reading.toFixed(3) }}{{ meterOf(c).unit }}</template>
                     <template v-else-if="resultOf(c)">{{ resultOf(c).U.toFixed(3) }}V</template>
-                    <template v-else>—</template>
+                    <template v-else>-</template>
                   </td>
                   <td>
                     <template v-if="resultOf(c)">{{ resultOf(c).I.toFixed(3) }}A</template>
-                    <template v-else>—</template>
+                    <template v-else>-</template>
                   </td>
                   <td>
                     <template v-if="resultOf(c)">{{ resultOf(c).P.toFixed(3) }}W</template>
-                    <template v-else>—</template>
+                    <template v-else>-</template>
                   </td>
                   <td>
                     <template v-if="c.type === 'bulb'">{{ bulbStateName(c) }}</template>
@@ -121,7 +121,7 @@
                     <template v-else-if="c.type === 'voltmeter' || c.type === 'ammeter'">{{ c.state.over ? '⚠️超量程' : '档位 ' + c.params.range }}</template>
                     <template v-else-if="c.type === 'ohmmeter'">{{ c.state.tip ? c.state.tip : (c.state.over ? '⚠️打表' : (c.state.zero ? '✓ 已调零' : (c.state.inf ? '∞' : '测量中'))) }}</template>
                     <template v-else-if="c.type === 'rheostat'">{{ Math.round(c.params.slider * 100) }}%</template>
-                    <template v-else>—</template>
+                    <template v-else>-</template>
                   </td>
                 </tr>
               </tbody>
@@ -224,6 +224,21 @@
         <div v-else-if="selectedWire" class="param-editor">
           <div class="p-info">连接：{{ wireBrief(selectedWire) }}</div>
           <div class="p-info">线型：{{ wireStyleName(selectedWire.style) }}</div>
+          <!-- 曲线弧度自定义：正=默认侧弯曲、负=反向弯曲、0=直线、↺=恢复自动 -->
+          <div v-if="selectedWire.style === 'curve'" class="p-info">
+            <div class="p-row">
+              <span>弧度</span>
+              <span class="p-val">{{ bendLabel(selectedWire) }}</span>
+            </div>
+            <input class="bend-slider" type="range" min="-100" max="100" step="1"
+              :value="bendValue(selectedWire)"
+              @input="setWireBend(selectedWire, +$event.target.value)" />
+            <div class="p-row bend-scale">
+              <span>直线</span>
+              <span class="bend-auto" @click="resetWireBend(selectedWire)">↺ 自动</span>
+              <span>反向</span>
+            </div>
+          </div>
           <button class="del-btn" @click="removeWire(selectedWire.id)">🗑 删除该导线</button>
         </div>
         <div v-else class="no-sel">未选中元件<br />点击画布中的元件或上方清单进行选中</div>
@@ -270,6 +285,23 @@ const selectedWire = computed(() => wires.value.find((w) => w.id === selectedWir
 
 const wireStyleName = (s) => (wireStyles.find((x) => x.key === s) || {}).name || s
 const wireStyleColor = (s) => ({ curve: '#2563eb', ortho: '#7c3aed', line: '#059669' }[s] || '#64748b')
+
+// ---------- 曲线导线弧度控制 ----------
+// wire.bendRatio: undefined=自动弧度；-1~1 自定义（负=反向弯曲，0=直线）
+const bendValue = (w) => (w.bendRatio === undefined || w.bendRatio === null ? 0 : Math.round(w.bendRatio * 100))
+const bendLabel = (w) => {
+  if (w.bendRatio === undefined || w.bendRatio === null) return '自动'
+  const v = Math.round(w.bendRatio * 100)
+  if (v === 0) return '直线'
+  return (v > 0 ? '正向 ' : '反向 ') + Math.abs(v) + '%'
+}
+const setWireBend = (w, v) => {
+  w.bendRatio = v / 100
+  // 归零即直线，保留 0 而非 undefined，便于用户继续微调方向
+}
+const resetWireBend = (w) => {
+  w.bendRatio = undefined
+}
 const wireBrief = (w) => {
   const a = comps.value.find((c) => c.id === w.a.compId)
   const b = comps.value.find((c) => c.id === w.b.compId)
@@ -662,8 +694,14 @@ function buildLayout() {
   const H = cvWrap.value.clientHeight
   const L = 110
   const R = W - 110
-  const T = 96
-  const B = H - 110
+  const nBr = branches.length
+  // 行距自适应：支路多时压缩，保证内容不溢出画布（下限 44）
+  const rowGap = nBr > 1 ? Math.min(96, Math.max(44, Math.floor((H - 418) / (nBr - 1)))) : 96
+  // 电路图内容高度：顶边元件行 + 支路区(首行距顶边120) + 电池区(末行下170)
+  const contentH = nBr ? 120 + (nBr - 1) * rowGap + 170 : 200
+  // 电路图整体垂直居中（避免元件/回路贴左上角）
+  const T = Math.max(64, Math.round((H - contentH) / 2))
+  const B = T + contentH
   const nodes = []
   const segs = []
   const reports = []
@@ -715,8 +753,6 @@ function buildLayout() {
   })
   // 并联支路：主回路内部按水平横档排布（不向顶边元件引竖线、不在顶边画贯穿总线，
   // 避免导线从元件符号下方穿过造成"被短路"的视觉）
-  // 行距自适应：支路多时压缩行距，避免横档超出主回路矩形底边/画布
-  const rowGap = Math.min(96, Math.max(64, (B - T - 180) / Math.max(branches.length, 1)))
   branches.forEach((br, bi) => {
     const rowY = T + 120 + bi * rowGap
     const xA = junctionX[br.nA]
@@ -879,7 +915,7 @@ function hitWire(x, y) {
     const b = termPos(w.b)
     if (!a || !b) continue
     const wd = isMobile() ? 12 : 7
-    if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style) < wd) return w
+    if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style, w.bendRatio) < wd) return w
   }
   return null
 }
@@ -1116,7 +1152,7 @@ function draw() {
     ctx.strokeStyle = sel ? COLORS.blue : COLORS.line
     ctx.lineWidth = sel ? 3.2 : 2.2
     ctx.lineCap = 'round'
-    wirePath(ctx, a.x, a.y, b.x, b.y, w.style)
+    wirePath(ctx, a.x, a.y, b.x, b.y, w.style, w.bendRatio)
     ctx.stroke()
     ctx.lineCap = 'butt'
   }
@@ -1511,6 +1547,34 @@ onBeforeUnmount(() => {
         color: #64748b;
         margin-bottom: 8px;
         line-height: 1.6;
+      }
+
+      .p-val {
+        color: #2563eb;
+        font-weight: 600;
+      }
+
+      .bend-slider {
+        width: 100%;
+        margin: 2px 0 2px;
+        accent-color: #2563eb;
+        cursor: pointer;
+      }
+
+      .bend-scale {
+        font-size: 11px;
+        color: #94a3b8;
+        margin-bottom: 8px;
+
+        .bend-auto {
+          color: #2563eb;
+          cursor: pointer;
+          padding: 0 4px;
+
+          &:hover {
+            text-decoration: underline;
+          }
+        }
       }
 
       .toggle-btn {

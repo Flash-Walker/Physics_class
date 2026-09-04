@@ -315,7 +315,7 @@ function drawBatteryBox(ctx, comp) {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText('+', cx + cellW / 2 - 4, 0)
-      ctx.fillText('−', cx - cellW / 2 + 4, 0)
+      ctx.fillText('-', cx - cellW / 2 + 4, 0)
     } else {
       // 空槽
       ctx.strokeStyle = '#cbd5e1'
@@ -814,7 +814,12 @@ function drawSwitch2(ctx, comp) {
 
 // ---------- 导线路径 ----------
 // style: 'line' 直线 | 'curve' 圆滑贝塞尔 | 'ortho' 正交直角（转角圆角）
-export function wirePath(ctx, x1, y1, x2, y2, style) {
+// bendRatio: 曲线弧度系数（-1~1，负=反向弯曲，0=直线）；undefined/null = 自动默认弧度
+function curveBendPx(len, bendRatio) {
+  if (bendRatio === undefined || bendRatio === null) return Math.min(48, len * 0.22)
+  return bendRatio * Math.min(70, len * 0.4)
+}
+export function wirePath(ctx, x1, y1, x2, y2, style, bendRatio) {
   const dx = x2 - x1
   const dy = y2 - y1
   const len = Math.hypot(dx, dy)
@@ -828,7 +833,7 @@ export function wirePath(ctx, x1, y1, x2, y2, style) {
     const my = (y1 + y2) / 2
     const nx = -dy / len
     const ny = dx / len
-    const bend = Math.min(48, len * 0.22)
+    const bend = curveBendPx(len, bendRatio)
     ctx.quadraticCurveTo(mx + nx * bend, my + ny * bend, x2, y2)
   } else {
     // ortho：水平优先走线，转角处圆角
@@ -864,7 +869,7 @@ export function distToSeg(px, py, x1, y1, x2, y2) {
 }
 
 // 点到导线距离（按线型分别计算）
-export function distToWire(px, py, ax, ay, bx, by, style) {
+export function distToWire(px, py, ax, ay, bx, by, style, bendRatio) {
   if (style === 'line') return distToSeg(px, py, ax, ay, bx, by)
   if (style === 'ortho') {
     const d1 = distToSeg(px, py, ax, ay, bx, ay)
@@ -877,7 +882,7 @@ export function distToWire(px, py, ax, ay, bx, by, style) {
   const my = (ay + by) / 2
   const nx = -(by - ay) / len
   const ny = (bx - ax) / len
-  const bend = Math.min(48, len * 0.22)
+  const bend = curveBendPx(len, bendRatio)
   const cx = mx + nx * bend
   const cy = my + ny * bend
   let min = Infinity
