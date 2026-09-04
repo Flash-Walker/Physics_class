@@ -698,35 +698,44 @@ function buildLayout() {
     }
     if (i === k - 1) segs.push({ x1: cx + hw, y1: T, x2: R, y2: T })
   }
-  // 并联支路：垂直排布在主回路内部
+  // 主回路节点 → 接入列：nodeSeq[0]/nodeSeq[k] 是左右立柱（立柱本身贯通 T~B，
+  // 支路可直接水平搭接）；中间节点是顶边相邻两元件之间的导线，取导线中点垂直引下
+  const junctionX = {}
+  main.nodeSeq.forEach((n, idx) => {
+    if (idx <= 0) junctionX[n] = L
+    else if (idx >= k) junctionX[n] = R
+    else {
+      const prev = topComps[idx - 1]
+      const next = topComps[idx]
+      const x1 = L + gap * idx + prev.comp.w / 2
+      const x2 = L + gap * (idx + 1) - next.comp.w / 2
+      junctionX[n] = (x1 + x2) / 2
+    }
+  })
+  // 并联支路：主回路内部按水平横档排布（不向顶边元件引竖线、不在顶边画贯穿总线，
+  // 避免导线从元件符号下方穿过造成"被短路"的视觉）
   branches.forEach((br, bi) => {
     const rowY = T + 120 + bi * 96
-    // 支路连接点在主回路顶边上的 x 位置
-    const findNodeX = (n) => {
-      // n 在 nodeSeq 中的位置 → 顶边元件索引
-      const idx = main.nodeSeq.indexOf(n)
-      if (idx <= 0) return L
-      if (idx >= k) return R
-      return L + gap * idx
-    }
-    const xA = findNodeX(br.nA)
-    const xB = findNodeX(br.nB)
+    const xA = junctionX[br.nA]
+    const xB = junctionX[br.nB]
+    if (xA === undefined || xB === undefined) return
+    const x1 = Math.min(xA, xB)
+    const x2 = Math.max(xA, xB)
     const m = br.comps.length
-    br.comps.forEach((e, i) => {
-      const cx = Math.min(xA, xB) + (Math.abs(xB - xA) * (i + 1)) / (m + 1)
-      nodes.push({ compId: e.id, x: cx, y: rowY })
-      // 引线到连接点
-      segs.push({ x1: cx - e.w / 2, y1: rowY, x2: cx - e.w / 2, y2: T })
-      segs.push({ x1: cx + e.w / 2, y1: rowY, x2: cx + e.w / 2, y2: T })
-    })
-    // 支路两连接点间水平连线（在 T 处，与主回路连线重合即可——补垂直段）
-    segs.push({ x1: Math.min(xA, xB), y1: T, x2: Math.max(xA, xB), y2: T })
-    // 支路元件间水平连线
-    for (let i = 0; i < m - 1; i++) {
-      const c1 = nodes[nodes.length - m + i]
-      const c2 = nodes[nodes.length - m + i + 1]
-      segs.push({ x1: c1.x + br.comps[i].w / 2, y1: rowY, x2: c2.x - br.comps[i + 1].w / 2, y2: rowY })
+    // 中间节点：从顶边导线中点垂直引下到支路行（端点节点直接搭左右立柱，无需竖线）
+    for (const nx of [br.nA, br.nB]) {
+      const idx = main.nodeSeq.indexOf(nx)
+      if (idx > 0 && idx < k) segs.push({ x1: junctionX[nx], y1: T, x2: junctionX[nx], y2: rowY })
     }
+    // 支路元件沿 rowY 水平串联 + 与两接入点水平相连
+    let prevX = x1
+    br.comps.forEach((e, i) => {
+      const cx = x1 + ((x2 - x1) * (i + 1)) / (m + 1)
+      nodes.push({ compId: e.id, x: cx, y: rowY })
+      segs.push({ x1: prevX, y1: rowY, x2: cx - e.w / 2, y2: rowY })
+      prevX = cx + e.w / 2
+    })
+    segs.push({ x1: prevX, y1: rowY, x2: x2, y2: rowY })
     reports.push('并联支路：' + br.comps.map((e) => nameOf(e.type)).join(' → '))
   })
 
