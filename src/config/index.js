@@ -14,7 +14,10 @@ import { dispersionConfig } from './experiments/optics/dispersion.js'
 import { soundWaveConfig } from './experiments/acoustics/sound-wave.js'
 import { circuitLabConfig } from './experiments/electricity/circuit-lab.js'
 import { echoRangingConfig } from './experiments/acoustics/echo-ranging.js'
-import { circuitLabConfig } from './experiments/electricity/circuit-lab.js'
+import { phaseChangeConfig } from './experiments/heat/phaseChange.js'
+import { molecularMotionConfig } from './experiments/heat/molecularMotion.js'
+import { specificHeatCapacityConfig } from './experiments/heat/specificHeatCapacity.js'
+import { heatEngineConfig } from './experiments/heat/heatEngine.js'
 
 export const experimentConfigs = {
   'mechanics/meeting': meetingConfig,
@@ -35,13 +38,14 @@ export const experimentConfigs = {
   'acoustics/sound-wave': soundWaveConfig,
   'acoustics/echo-ranging': echoRangingConfig,
   // 电学实验
-  'electricity/circuit-lab': circuitLabConfig
-  // 后续实验逐个添加，例如：
-  // 'mechanics/buoyancy': buoyancyConfig
+  'electricity/circuit-lab': circuitLabConfig,
+  // 热学实验
+  'heat/phase-change': phaseChangeConfig,
+  'heat/molecular-motion': molecularMotionConfig,
+  'heat/specific-heat-capacity': specificHeatCapacityConfig,
+  'heat/heat-engine': heatEngineConfig
 }
 
 export function getExperimentConfig(chapterId, expId) {
   return experimentConfigs[`${chapterId}/${expId}`] || null
-}
-erId}/${expId}`] || null
 }
