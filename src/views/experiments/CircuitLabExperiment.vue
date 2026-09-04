@@ -264,10 +264,11 @@ import {
   drawPreview,
   getBounds,
   hitComponent,
-  getTerminals,
-  wirePath,
-  distToWire
-} from '@/utils/circuit/components.js'
+  getTerminals, 
+  wirePath, 
+  distToWire,
+  curveBendPx
+} from '@/utils/circuit/components.js' 
 import { solveCircuit } from '@/utils/circuit/solver.js'
 
 // ---------- 导线 ----------
@@ -881,6 +882,7 @@ function drawLayout(ctx, cw, ch) {
 const cvWrap = ref(null)
 let rafId = 0
 let drag = null // { mode: 'move'|'slider', comp, offX, offY }
+let bendDrag = null // { wire } 曲线弧度手柄拖动中
 
 function toLocal(e) {
   const rect = cv.value.getBoundingClientRect()
@@ -918,6 +920,33 @@ function hitWire(x, y) {
     if (distToWire(x, y, a.x, a.y, b.x, b.y, w.style, w.bendRatio) < wd) return w
   }
   return null
+}
+
+// 曲线导线弧度手柄：位于贝塞尔曲线实际中点（t=0.5），拖动可自定义弧度
+function wireHandlePos(w) {
+  if (!w || w.style !== 'curve') return null
+  const a = termPos(w.a)
+  const b = termPos(w.b)
+  if (!a || !b) return null
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy)
+  if (len < 2) return null
+  const mx = (a.x + b.x) / 2
+  const my = (a.y + b.y) / 2
+  const nx = -dy / len
+  const ny = dx / len
+  const bend = curveBendPx(len, w.bendRatio)
+  return { x: mx + (nx * bend) / 2, y: my + (ny * bend) / 2 }
+}
+
+// 命中弧度手柄（仅当前选中的曲线导线）
+function hitWireHandle(x, y) {
+  const w = wires.value.find((o) => o.id === selectedWireId.value)
+  const hp = wireHandlePos(w)
+  if (!hp) return null
+  const r = isMobile() ? 16 : 11
+  return Math.hypot(x - hp.x, y - hp.y) <= r ? { wire: w } : null
 }
 
 // 命中变阻器滑块（局部坐标 sxp ∈ [-40,40], 滑块头部 y≈-9）
@@ -959,6 +988,13 @@ function onPointerDown(e) {
       }
       return
     }
+    return
+  }
+  // 0. 曲线弧度手柄 → 拖动直接改弧度（优先于接线柱/元件/导线）
+  const hdl = hitWireHandle(x, y)
+  if (hdl) {
+    bendDrag = { wire: hdl.wire }
+    cv.value.style.cursor = 'grabbing'
     return
   }
   // 1. 接线柱 → 开始接线（端子可连多根线，并联靠多线汇聚实现）
@@ -1027,6 +1063,28 @@ function onPointerMove(e) {
     }
     return
   }
+  // 弧度手柄拖动：鼠标位置沿法线方向投影 → bendRatio（-1~1，反向即反向弯曲）
+  if (bendDrag) {
+    const w = bendDrag.wire
+    const a = termPos(w.a)
+    const b = termPos(w.b)
+    if (a && b) {
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len = Math.hypot(dx, dy)
+      if (len >= 2) {
+        const mx = (a.x + b.x) / 2
+        const my = (a.y + b.y) / 2
+        const nx = -dy / len
+        const ny = dx / len
+        const maxBend = Math.min(70, len * 0.4)
+        const proj = (x - mx) * nx + (y - my) * ny
+        const bend = Math.max(-maxBend, Math.min(maxBend, proj))
+        w.bendRatio = Math.round((bend / maxBend) * 100) / 100
+      }
+    }
+    return
+  }
   // 接线中：更新临时终点 + 吸附检测
   if (wiring.value) {
     wiring.value.x = x
@@ -1063,6 +1121,12 @@ function onPointerUp(e) {
       dragOhmCircuit.value = null
       cv.value.style.cursor = 'default'
     }
+    return
+  }
+  // 弧度手柄拖动结束
+  if (bendDrag) {
+    bendDrag = null
+    cv.value.style.cursor = 'default'
     return
   }
   // 接线结束：吸附成功则创建导线
@@ -1171,6 +1235,26 @@ function draw() {
         ctx.arc(t.x, t.y, 2.4, 0, Math.PI * 2)
         ctx.fill()
       }
+    }
+  }
+
+  // 选中曲线导线的弧度手柄（拖动可直接调整弧度）
+  if (selectedWireId.value && !wiring.value) {
+    const w = wires.value.find((o) => o.id === selectedWireId.value)
+    const hp = wireHandlePos(w)
+    if (hp) {
+      const r = isMobile() ? 10 : 7
+      ctx.beginPath()
+      ctx.arc(hp.x, hp.y, r, 0, Math.PI * 2)
+      ctx.fillStyle = '#fff'
+      ctx.fill()
+      ctx.strokeStyle = '#2563eb'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(hp.x, hp.y, 2.6, 0, Math.PI * 2)
+      ctx.fillStyle = '#2563eb'
+      ctx.fill()
     }
   }
 

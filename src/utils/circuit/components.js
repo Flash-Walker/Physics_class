@@ -815,7 +815,7 @@ function drawSwitch2(ctx, comp) {
 // ---------- 导线路径 ----------
 // style: 'line' 直线 | 'curve' 圆滑贝塞尔 | 'ortho' 正交直角（转角圆角）
 // bendRatio: 曲线弧度系数（-1~1，负=反向弯曲，0=直线）；undefined/null = 自动默认弧度
-function curveBendPx(len, bendRatio) {
+export function curveBendPx(len, bendRatio) {
   if (bendRatio === undefined || bendRatio === null) return Math.min(48, len * 0.22)
   return bendRatio * Math.min(70, len * 0.4)
 }
