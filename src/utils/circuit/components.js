@@ -154,6 +154,7 @@ export function createComponent(type, extra = {}) {
     y: 0,
     w,
     h: def.h,
+    rotation: 0, // 旋转角度（度，0~360，绕元件中心）
     params: { ...def.defaultParams, ...extra },
     state: {},
     selected: false
@@ -164,7 +165,17 @@ export function getTypeDef(comp) {
   return COMPONENT_TYPES[comp.type]
 }
 
-// 接线柱全局坐标
+// 元件局部坐标 ← 世界坐标（逆旋转）
+export function toCompLocal(comp, x, y) {
+  const rad = ((comp.rotation || 0) * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const dx = x - comp.x
+  const dy = y - comp.y
+  return { x: dx * cos + dy * sin, y: -dx * sin + dy * cos }
+}
+
+// 接线柱全局坐标（随元件旋转）
 export function getTerminals(comp) {
   const def = COMPONENT_TYPES[comp.type]
   let terms = def.terminals
@@ -176,26 +187,34 @@ export function getTerminals(comp) {
       { label: '+', dx: hw, dy: 0, ldx: 4, ldy: 8 }
     ]
   }
+  const rad = ((comp.rotation || 0) * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
   return terms.map((t, i) => ({
     id: comp.id + ':' + (t.label || 't' + i),
     label: t.label,
-    x: comp.x + t.dx,
-    y: comp.y + t.dy,
+    x: comp.x + t.dx * cos - (t.dy || 0) * sin,
+    y: comp.y + t.dx * sin + (t.dy || 0) * cos,
     compId: comp.id,
     ldx: t.ldx,
     ldy: t.ldy
   }))
 }
 
-// 元件包围盒（用于命中检测与选中框）
+// 元件包围盒（用于命中检测与选中框；旋转时按轴对齐包围盒估算）
 export function getBounds(comp) {
-  return { x: comp.x - comp.w / 2, y: comp.y - comp.h / 2, w: comp.w, h: comp.h }
+  const rad = ((comp.rotation || 0) * Math.PI) / 180
+  const cos = Math.abs(Math.cos(rad))
+  const sin = Math.abs(Math.sin(rad))
+  const w = comp.w * cos + comp.h * sin
+  const h = comp.w * sin + comp.h * cos
+  return { x: comp.x - w / 2, y: comp.y - h / 2, w, h }
 }
 
-// 命中检测：点是否在元件上
+// 命中检测：点是否在元件上（变换到元件局部坐标，跟随旋转）
 export function hitComponent(comp, px, py) {
-  const b = getBounds(comp)
-  return px >= b.x - 6 && px <= b.x + b.w + 6 && py >= b.y - 6 && py <= b.y + b.h + 6
+  const l = toCompLocal(comp, px, py)
+  return Math.abs(l.x) <= comp.w / 2 + 6 && Math.abs(l.y) <= comp.h / 2 + 6
 }
 
 // ---------- 通用绘制 ----------
@@ -222,7 +241,17 @@ export function drawComponent(ctx, comp) {
   const def = COMPONENT_TYPES[comp.type]
   ctx.save()
   ctx.translate(comp.x, comp.y)
+  if (comp.rotation) ctx.rotate((comp.rotation * Math.PI) / 180)
   def.draw(ctx, comp)
+  // 选中框（随元件旋转的局部坐标虚线框）
+  if (comp.selected) {
+    ctx.save()
+    ctx.strokeStyle = COLORS.blue
+    ctx.lineWidth = 1.4
+    ctx.setLineDash([6, 4])
+    ctx.strokeRect(-comp.w / 2 - 10, -comp.h / 2 - 10, comp.w + 20, comp.h + 20)
+    ctx.restore()
+  }
   ctx.restore()
 
   // 接线柱
@@ -230,17 +259,6 @@ export function drawComponent(ctx, comp) {
   for (const t of terms) {
     const td = def.terminals.find((x) => x.label === t.label)
     drawTerminal(ctx, t.x, t.y, t.label, td ? td.ldx : -8, td ? td.ldy : 8)
-  }
-
-  // 选中框
-  if (comp.selected) {
-    const b = getBounds(comp)
-    ctx.save()
-    ctx.strokeStyle = COLORS.blue
-    ctx.lineWidth = 1.4
-    ctx.setLineDash([6, 4])
-    ctx.strokeRect(b.x - 10, b.y - 10, b.w + 20, b.h + 20)
-    ctx.restore()
   }
 }
 

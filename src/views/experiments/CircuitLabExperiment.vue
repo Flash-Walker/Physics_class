@@ -129,6 +129,14 @@
           </template>
         </div>
         <div v-if="selectedComp" class="param-editor">
+          <!-- 旋转（所有元件通用）：拖画布上蓝色圆柄自由旋转，或按 90° 步进 -->
+          <div class="p-row rot-row">
+            <span>方向 {{ rotLabel(selectedComp) }}</span>
+            <span class="rot-btns">
+              <button class="mini-btn" @click="rotateComp(selectedComp, -90)">⟲ 90°</button>
+              <button class="mini-btn" @click="rotateComp(selectedComp, 90)">⟳ 90°</button>
+            </span>
+          </div>
           <!-- 电池 -->
           <template v-if="selectedComp.type === 'battery'">
             <label class="p-row">
@@ -264,11 +272,12 @@ import {
   drawPreview,
   getBounds,
   hitComponent,
-  getTerminals, 
-  wirePath, 
+  getTerminals,
+  toCompLocal,
+  wirePath,
   distToWire,
   curveBendPx
-} from '@/utils/circuit/components.js' 
+} from '@/utils/circuit/components.js'
 import { solveCircuit } from '@/utils/circuit/solver.js'
 
 // ---------- 导线 ----------
@@ -429,6 +438,7 @@ function addPart(p) {
 
 function select(id) {
   comps.value.forEach((c) => (c.selected = c.id === id))
+  selectedWireId.value = null // 选中元件时清除导线选中（隐藏弧度手柄）
 }
 
 function removeSelected() {
@@ -467,11 +477,11 @@ const dragOhmCircuit = ref(null)      // 电路图模式欧姆表调零拖动
 
 function backToEdit() {
   submitted.value = false
-  // 恢复编辑坐标
+  // 恢复编辑坐标与旋转
   if (layoutBackup.value) {
     for (const b of layoutBackup.value) {
       const c = comps.value.find((x) => x.id === b.id)
-      if (c) { c.x = b.x; c.y = b.y }
+      if (c) { c.x = b.x; c.y = b.y; c.rotation = b.rotation || 0 }
     }
     layoutBackup.value = null
   }
@@ -534,13 +544,16 @@ function meterDefR(c) {
   const map = METER_DEF_R[c.type]
   return map ? map[c.params.range] : 0
 }
-// 欧姆表调零旋钮命中（元件底部旋钮中心 (0,40) 半径 12）
+// 欧姆表调零旋钮命中（元件底部旋钮中心局部 (0,40) 半径 12；随元件旋转）
 function hitOhmKnob(c, x, y) {
-  return c.type === 'ohmmeter' && Math.hypot(x - c.x, y - (c.y + 40)) < 14
+  if (c.type !== 'ohmmeter') return false
+  const l = toCompLocal(c, x, y)
+  return Math.hypot(l.x, l.y - 40) < 14
 }
-// 调零旋钮拖动 → 中值电阻 1000~2000Ω
-function applyOhmZero(c, x) {
-  c.params.Rmid = Math.round(Math.min(2000, Math.max(1000, 1500 + (x - c.x) * 10)))
+// 调零旋钮拖动 → 中值电阻 1000~2000Ω（沿元件局部 x 轴）
+function applyOhmZero(c, x, y) {
+  const lx = toCompLocal(c, x, y || 0).x
+  c.params.Rmid = Math.round(Math.min(2000, Math.max(1000, 1500 + lx * 10)))
 }
 
 // 数据栏求解面板辅助
@@ -837,11 +850,11 @@ function submitCircuit() {
   circuitReport.value = { ok, msgs }
   if (ok) {
     layout.value = buildLayout()
-    // 固化布局坐标到元件（电路图模式交互命中用），备份原坐标
-    layoutBackup.value = comps.value.map((c) => ({ id: c.id, x: c.x, y: c.y }))
+    // 固化布局坐标到元件（电路图模式交互命中用），备份原坐标/旋转
+    layoutBackup.value = comps.value.map((c) => ({ id: c.id, x: c.x, y: c.y, rotation: c.rotation || 0 }))
     for (const n of layout.value.nodes) {
       const c = comps.value.find((x) => x.id === n.compId)
-      if (c) { c.x = n.x; c.y = n.y }
+      if (c) { c.x = n.x; c.y = n.y; c.rotation = 0 } // 电路图横平竖直，旋转归零
     }
     solveNow()
     submitted.value = true
@@ -883,6 +896,7 @@ const cvWrap = ref(null)
 let rafId = 0
 let drag = null // { mode: 'move'|'slider', comp, offX, offY }
 let bendDrag = null // { wire } 曲线弧度手柄拖动中
+let rotDrag = null // { comp, rot, lastAng } 元件旋转手柄拖动中
 
 function toLocal(e) {
   const rect = cv.value.getBoundingClientRect()
@@ -949,15 +963,39 @@ function hitWireHandle(x, y) {
   return Math.hypot(x - hp.x, y - hp.y) <= r ? { wire: w } : null
 }
 
-// 命中变阻器滑块（局部坐标 sxp ∈ [-40,40], 滑块头部 y≈-9）
+// ---------- 元件旋转 ----------
+const rotLabel = (c) => {
+  const d = ((c.rotation || 0) % 360 + 360) % 360
+  return d === 0 ? '0°（水平）' : Math.round(d) + '°'
+}
+function rotateComp(c, delta) {
+  c.rotation = (((c.rotation || 0) + delta) % 360 + 360) % 360
+}
+// 旋转手柄位置：元件局部 (0, -(h/2+30)) 旋转到世界坐标（随元件转）
+function rotateHandlePos(c) {
+  const rad = ((c.rotation || 0) * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  const ly = -(c.h / 2 + 30)
+  return { x: c.x - ly * sin, y: c.y + ly * cos }
+}
+// 命中旋转手柄（仅当前选中的元件，编辑模式）
+function hitRotateHandle(x, y) {
+  const c = selectedComp.value
+  if (!c || submitted.value) return null
+  const hp = rotateHandlePos(c)
+  const r = isMobile() ? 18 : 13
+  return Math.hypot(x - hp.x, y - hp.y) <= r ? c : null
+}
+
+// 命中变阻器滑块（局部坐标 sxp ∈ [-40,40], 滑块头部 y≈-9；随元件旋转）
 function hitSlider(c, x, y) {
   if (c.type !== 'rheostat') return null
   const sxp = -40 + c.params.slider * 80
-  const lx = x - c.x
-  const ly = y - c.y
+  const l = toCompLocal(c, x, y)
   const hw = isMobile() ? 14 : 11
   const top = isMobile() ? -18 : -16
-  if (Math.abs(lx - sxp) <= hw && ly >= top && ly <= 0) return true
+  if (Math.abs(l.x - sxp) <= hw && l.y >= top && l.y <= 0) return true
   return null
 }
 
@@ -990,7 +1028,14 @@ function onPointerDown(e) {
     }
     return
   }
-  // 0. 曲线弧度手柄 → 拖动直接改弧度（优先于接线柱/元件/导线）
+  // 0. 元件旋转手柄 → 拖动自由旋转（优先于接线柱/元件/导线）
+  const rc = hitRotateHandle(x, y)
+  if (rc) {
+    rotDrag = { comp: rc, rot: rc.rotation || 0, lastAng: Math.atan2(y - rc.y, x - rc.x) }
+    cv.value.style.cursor = 'grabbing'
+    return
+  }
+  // 0.5 曲线弧度手柄 → 拖动直接改弧度（优先于接线柱/元件/导线）
   const hdl = hitWireHandle(x, y)
   if (hdl) {
     bendDrag = { wire: hdl.wire }
@@ -1028,6 +1073,7 @@ function onPointerDown(e) {
   const hit = topHit(x, y)
   if (hit) {
     comps.value.forEach((c) => (c.selected = c.id === hit.id))
+    selectedWireId.value = null
     drag = { mode: 'move', comp: hit, offX: x - hit.x, offY: y - hit.y, moved: false, downX: x, downY: y }
     return
   }
@@ -1057,10 +1103,24 @@ function onPointerMove(e) {
     } else if (dragOhmCircuit.value) {
       const c = comps.value.find((o) => o.id === dragOhmCircuit.value)
       if (c) {
-        applyOhmZero(c, x)
+        applyOhmZero(c, x, y)
         solveNow()
       }
     }
+    return
+  }
+  // 旋转手柄拖动：角度差累积（防 atan2 ±π 跳变），Shift 吸附 15°
+  if (rotDrag) {
+    const c = rotDrag.comp
+    const ang = Math.atan2(y - c.y, x - c.x)
+    let d = ang - rotDrag.lastAng
+    if (d > Math.PI) d -= 2 * Math.PI
+    if (d < -Math.PI) d += 2 * Math.PI
+    rotDrag.rot += (d * 180) / Math.PI
+    rotDrag.lastAng = ang
+    let deg = rotDrag.rot
+    if (e.shiftKey) deg = Math.round(deg / 15) * 15
+    c.rotation = ((deg % 360) + 360) % 360
     return
   }
   // 弧度手柄拖动：鼠标位置沿法线方向投影 → bendRatio（-1~1，反向即反向弯曲）
@@ -1103,10 +1163,10 @@ function onPointerMove(e) {
     drag.comp.y = y - drag.offY
   } else if (drag.mode === 'slider') {
     const c = drag.comp
-    const sxp = x - c.x
-    c.params.slider = Math.min(1, Math.max(0, (sxp + 40) / 80))
+    const lx = toCompLocal(c, x, y).x
+    c.params.slider = Math.min(1, Math.max(0, (lx + 40) / 80))
   } else if (drag.mode === 'ohmZero') {
-    applyOhmZero(drag.comp, x)
+    applyOhmZero(drag.comp, x, y)
   }
 }
 
@@ -1121,6 +1181,12 @@ function onPointerUp(e) {
       dragOhmCircuit.value = null
       cv.value.style.cursor = 'default'
     }
+    return
+  }
+  // 旋转手柄拖动结束
+  if (rotDrag) {
+    rotDrag = null
+    cv.value.style.cursor = 'default'
     return
   }
   // 弧度手柄拖动结束
@@ -1236,6 +1302,29 @@ function draw() {
         ctx.fill()
       }
     }
+  }
+
+  // 选中元件的旋转手柄（拖动自由旋转；画在元件上方并随元件转）
+  if (selectedComp.value && !submitted.value && !wiring.value) {
+    const c = selectedComp.value
+    const hp = rotateHandlePos(c)
+    const r = isMobile() ? 11 : 8
+    ctx.beginPath()
+    ctx.arc(hp.x, hp.y, r, 0, Math.PI * 2)
+    ctx.fillStyle = '#fff'
+    ctx.fill()
+    ctx.strokeStyle = '#2563eb'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    // 旋转箭头
+    ctx.save()
+    ctx.translate(hp.x, hp.y)
+    ctx.fillStyle = '#2563eb'
+    ctx.font = 'bold ' + (isMobile() ? 15 : 12) + 'px sans-serif'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('↻', 0, 0.5)
+    ctx.restore()
   }
 
   // 选中曲线导线的弧度手柄（拖动可直接调整弧度）
@@ -1636,6 +1725,27 @@ onBeforeUnmount(() => {
       .p-val {
         color: #2563eb;
         font-weight: 600;
+      }
+
+      .rot-row {
+        .rot-btns {
+          display: flex;
+          gap: 6px;
+        }
+
+        .mini-btn {
+          padding: 3px 8px;
+          font-size: 12px;
+          border: 1px solid #cbd5e1;
+          border-radius: 6px;
+          background: #f8fafc;
+          cursor: pointer;
+
+          &:hover {
+            background: #eff6ff;
+            border-color: #2563eb;
+          }
+        }
       }
 
       .bend-slider {
