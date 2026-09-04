@@ -632,19 +632,20 @@ function findMainLoop(compEdges) {
 }
 
 // 主回路之外的元件分类：并联支路 / 断路
+// 注意：同一节点对 (nA,nB) 上的多个元件在拓扑上必然是【并联】关系，
+// 必须各自独立成支路（阶梯式各占一档横档）。
+// 若把它们合并进同一 branch 再在同一横档上首尾串联绘制，会把并联画成串联
+// （典型：电压表并联在灯泡两端，图上却与另一只灯泡串成一排，读数因内阻分压仍≈电源电压）。
 function classifyRest(mainLoop, compEdges) {
   const loopSet = new Set(mainLoop.loop)
   const loopNodes = new Set(mainLoop.nodeSeq)
   const rest = compEdges.filter((e) => !loopSet.has(e))
-  const branches = [] // [{ comps: [], nA, nB }]
+  const branches = [] // [{ comps: [comp], nA, nB }]：每条并联边 = 一条独立支路
   const broken = []
   for (const e of rest) {
     if (e.short) { broken.push(e.comp); continue }
     if (loopNodes.has(e.a) && loopNodes.has(e.b)) {
-      // 并联支路：合并共享节点的支路元件
-      let br = branches.find((b) => b.nA === e.a && b.nB === e.b)
-      if (!br) { br = { nA: e.a, nB: e.b, comps: [] }; branches.push(br) }
-      br.comps.push(e.comp)
+      branches.push({ nA: e.a, nB: e.b, comps: [e.comp] })
     } else {
       broken.push(e.comp)
     }
@@ -714,8 +715,10 @@ function buildLayout() {
   })
   // 并联支路：主回路内部按水平横档排布（不向顶边元件引竖线、不在顶边画贯穿总线，
   // 避免导线从元件符号下方穿过造成"被短路"的视觉）
+  // 行距自适应：支路多时压缩行距，避免横档超出主回路矩形底边/画布
+  const rowGap = Math.min(96, Math.max(64, (B - T - 180) / Math.max(branches.length, 1)))
   branches.forEach((br, bi) => {
-    const rowY = T + 120 + bi * 96
+    const rowY = T + 120 + bi * rowGap
     const xA = junctionX[br.nA]
     const xB = junctionX[br.nB]
     if (xA === undefined || xB === undefined) return
