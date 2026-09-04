@@ -237,12 +237,43 @@ function drawTerminal(ctx, x, y, label, ldx, ldy) {
   ctx.restore()
 }
 
-export function drawComponent(ctx, comp) {
+// ===== 实物图片（可选，替代矢量符号绘制）=====
+// 端子锚点：图中 (xL, yC) ↔ 元件端子 (-dx, 0)，(xR, yC) ↔ (+dx, 0)
+// dx 为 null 时随元件宽度动态（batteryBox 端子距 = w/2 - 10，随节数变化）
+export const PART_IMAGES = {
+  battery: { url: new URL('../../assets/parts/battery.png', import.meta.url), dx: 44, xL: 4.8, xR: 595.8, yC: 78.5 },
+  batteryBox: { url: new URL('../../assets/parts/batteryBox.png', import.meta.url), dx: null, xL: 39.3, xR: 570.9, yC: 82.1 },
+  resistor: { url: new URL('../../assets/parts/resistor.png', import.meta.url), dx: 40, xL: 35.6, xR: 604.1, yC: 78.7 }
+}
+const _partImg = {}
+export function partImageOf(type) {
+  const p = PART_IMAGES[type]
+  if (!p) return null
+  if (_partImg[type]) return _partImg[type]
+  if (!p._loading) {
+    p._loading = true
+    const im = new Image()
+    im.onload = () => { _partImg[type] = im }
+    im.src = p.url.href
+  }
+  return null
+}
+
+export function drawComponent(ctx, comp, opts = {}) {
   const def = COMPONENT_TYPES[comp.type]
+  const img = opts.symbol ? null : partImageOf(comp.type)
+  const part = PART_IMAGES[comp.type]
   ctx.save()
   ctx.translate(comp.x, comp.y)
   if (comp.rotation) ctx.rotate((comp.rotation * Math.PI) / 180)
-  def.draw(ctx, comp)
+  if (img && part) {
+    // 图片模式：按端子锚点缩放（图内端子间距 → 元件端子间距 2dx）
+    const dx = part.dx != null ? part.dx : comp.w / 2 - 10
+    const scale = (2 * dx) / (part.xR - part.xL)
+    ctx.drawImage(img, -dx - part.xL * scale, -part.yC * scale, img.naturalWidth * scale, img.naturalHeight * scale)
+  } else {
+    def.draw(ctx, comp)
+  }
   // 选中框（随元件旋转的局部坐标虚线框）
   if (comp.selected) {
     ctx.save()
@@ -922,12 +953,11 @@ export function distToWire(px, py, ax, ay, bx, by, style, bendRatio) {
 // ---------- 器材栏预览 ----------
 export function drawPreview(ctx, type, extra = {}, w = 44, h = 32) {
   const comp = createComponent(type, extra)
-  const def = COMPONENT_TYPES[type]
   const scale = Math.min(w / comp.w, h / comp.h)
   ctx.save()
   ctx.clearRect(0, 0, w, h)
   ctx.translate(w / 2, h / 2)
   ctx.scale(scale, scale)
-  def.draw(ctx, comp)
+  drawComponent(ctx, comp)
   ctx.restore()
 }

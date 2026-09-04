@@ -879,9 +879,9 @@ function drawLayout(ctx, cw, ch) {
     ctx.lineTo(s.x2, s.y2)
     ctx.stroke()
   }
-  // 元件（布局坐标已固化到 comps）
+  // 元件（布局坐标已固化到 comps；电路图用矢量符号，不用实物图片）
   for (const c of comps.value) {
-    drawComponent(ctx, c)
+    drawComponent(ctx, c, { symbol: true })
   }
   // 标题
   ctx.fillStyle = '#334155'
