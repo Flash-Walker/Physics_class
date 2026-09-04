@@ -1109,7 +1109,8 @@ function onPointerMove(e) {
     }
     return
   }
-  // 旋转手柄拖动：角度差累积（防 atan2 ±π 跳变），Shift 吸附 15°
+  // 旋转手柄拖动：角度差累积（防 atan2 ±π 跳变）
+  // 吸附：Shift=15° 步进；平时接近 0/90/180/270° 时磁性吸附（±8° 内自动吸齐）
   if (rotDrag) {
     const c = rotDrag.comp
     const ang = Math.atan2(y - c.y, x - c.x)
@@ -1119,7 +1120,12 @@ function onPointerMove(e) {
     rotDrag.rot += (d * 180) / Math.PI
     rotDrag.lastAng = ang
     let deg = rotDrag.rot
-    if (e.shiftKey) deg = Math.round(deg / 15) * 15
+    if (e.shiftKey) {
+      deg = Math.round(deg / 15) * 15
+    } else {
+      const snap = Math.round(deg / 90) * 90
+      if (Math.abs(deg - snap) <= 8) deg = snap
+    }
     c.rotation = ((deg % 360) + 360) % 360
     return
   }
