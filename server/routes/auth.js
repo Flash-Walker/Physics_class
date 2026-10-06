@@ -6,6 +6,7 @@ import db from '../db.js'
 import { generateUid } from '../utils/uid.js'
 import { signToken } from '../utils/jwt.js'
 import { rateLimit } from '../middleware/rateLimit.js'
+import { requireAuth } from '../middleware/auth.js'
 
 const router = Router()
 
@@ -78,6 +79,41 @@ router.post('/register', rateLimit(Number(process.env.REGISTER_LIMIT) || 10, 60 
       token
     }
   })
+})
+
+// POST /api/auth/login — 登录（统一错误提示防账号枚举）
+// 限流：默认单 IP 10 次/分钟，可用环境变量 LOGIN_LIMIT 调整
+router.post('/login', rateLimit(Number(process.env.LOGIN_LIMIT) || 10, 60 * 1000), (req, res) => {
+  const { username = '', password = '' } = req.body || {}
+  if (!username || !password) {
+    return res.status(400).json({ code: 40003, message: '请输入用户名和密码' })
+  }
+
+  const row = db.prepare('SELECT uid, username, avatar, gender, birthday, occupation, password_hash FROM users WHERE username = ?').get(username)
+  const ok = row && bcrypt.compareSync(password, row.password_hash)
+  if (!ok) {
+    // 用户名不存在与密码错误返回同一提示，防止账号枚举
+    return res.status(401).json({ code: 40002, message: '用户名或密码错误' })
+  }
+
+  const token = signToken({ uid: row.uid, username: row.username })
+  res.json({
+    code: 0,
+    data: {
+      uid: row.uid,
+      username: row.username,
+      avatar: row.avatar,
+      gender: row.gender,
+      birthday: row.birthday,
+      occupation: row.occupation,
+      token
+    }
+  })
+})
+
+// POST /api/auth/logout — 登出（无状态 JWT，前端清除 token 即完成；本接口幂等返回成功）
+router.post('/logout', requireAuth, (req, res) => {
+  res.json({ code: 0, data: { logout: true } })
 })
 
 export default router

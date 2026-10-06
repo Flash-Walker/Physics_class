@@ -139,7 +139,7 @@
           {{ submitting ? '注册中…' : '注册' }}
         </button>
         <p class="login-link">
-          已有账号？<router-link to="/">返回首页</router-link>
+          已有账号？<router-link to="/login">去登录</router-link>
         </p>
       </form>
     </div>

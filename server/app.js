@@ -3,6 +3,7 @@
 import express from 'express'
 import db from './db.js'
 import authRouter from './routes/auth.js'
+import userRouter from './routes/user.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -35,8 +36,8 @@ app.get('/api/health', (req, res) => {
 })
 
 // —— 业务路由 ——
-app.use('/api/auth', authRouter)   // Sprint 1：注册；Sprint 2 起含登录/登出
-// app.use('/api/user',  userRouter)  // Sprint 1/2：/user/me
+app.use('/api/auth', authRouter)   // Sprint 1：注册；Sprint 2：登录/登出
+app.use('/api/user', userRouter)   // Sprint 2：/user/me（JWT 鉴权）
 // app.use('/api/stats', statsRouter) // Sprint 3：在线人数
 
 // 统一 404

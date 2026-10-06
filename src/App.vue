@@ -9,8 +9,17 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import NavHeader from '@/components/NavHeader.vue'
 import Footer from '@/components/Footer.vue'
+import { useUserStore } from '@/stores/user.js'
+
+const userStore = useUserStore()
+
+// 应用启动：恢复并校验登录态（Sprint 2 登录态保持）
+onMounted(() => {
+  userStore.initialize()
+})
 </script>
 
 <style lang="scss">
