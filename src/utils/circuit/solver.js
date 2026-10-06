@@ -125,34 +125,43 @@ export function solveCircuit(comps, wires, getTerminals) {
         const hasRod = used.has('C') || used.has('D')
         const hasA = used.has('A')
         const hasB = used.has('B')
-        let R
-        let na = null
-        let nb = null
-        if (hasA && hasB && !hasRod) {
-          // 接电阻丝两端：全阻值
-          R = maxR
-          na = find(terms.find((t) => t.label === 'A').id)
-          nb = find(terms.find((t) => t.label === 'B').id)
-        } else if (hasA && hasRod) {
-          // A-滑杆：滑片位置决定
-          R = maxR * sl
-          na = find(terms.find((t) => t.label === 'A').id)
-          nb = find(terms.find((t) => t.label === 'C').id)
-        } else if (hasB && hasRod) {
-          R = maxR * (1 - sl)
-          na = find(terms.find((t) => t.label === 'B').id)
-          nb = find(terms.find((t) => t.label === 'C').id)
-        } else if (hasRod) {
-          // 只接滑杆：近似短路
-          R = 1e-3
-          na = nb = find(terms.find((t) => t.label === 'C').id)
+        const nodeA = find(terms.find((t) => t.label === 'A').id)
+        const nodeB = find(terms.find((t) => t.label === 'B').id)
+        const rod = find(terms.find((t) => t.label === 'C').id)
+        if (hasA && hasB && hasRod) {
+          // 分压接法（A、B、滑杆三端接入）：滑片把线圈分成两段，各自成边
+          resEdges.push({ comp: c, a: nodeA, b: rod, R: Math.max(maxR * sl, 1e-3), rheoPart: 'A' })
+          resEdges.push({ comp: c, a: nodeB, b: rod, R: Math.max(maxR * (1 - sl), 1e-3), rheoPart: 'B' })
         } else {
-          // 未接线：默认 A-滑杆
-          R = maxR * sl
-          na = find(terms.find((t) => t.label === 'A').id)
-          nb = find(terms.find((t) => t.label === 'C').id)
+          let R
+          let na = null
+          let nb = null
+          if (hasA && hasB && !hasRod) {
+            // 接电阻丝两端：全阻值
+            R = maxR
+            na = nodeA
+            nb = nodeB
+          } else if (hasA && hasRod) {
+            // A-滑杆：滑片位置决定
+            R = maxR * sl
+            na = nodeA
+            nb = rod
+          } else if (hasB && hasRod) {
+            R = maxR * (1 - sl)
+            na = nodeB
+            nb = rod
+          } else if (hasRod) {
+            // 只接滑杆：近似短路
+            R = 1e-3
+            na = nb = rod
+          } else {
+            // 未接线：默认 A-滑杆
+            R = maxR * sl
+            na = nodeA
+            nb = rod
+          }
+          resEdges.push({ comp: c, a: na, b: nb, R: Math.max(R, 1e-3) })
         }
-        resEdges.push({ comp: c, a: na, b: nb, R: Math.max(R, 1e-3) })
         break
       }
       case 'ammeter': {
@@ -269,6 +278,7 @@ export function solveCircuit(comps, wires, getTerminals) {
   const results = new Map()     // 电阻类 + 电源：{U, I, P}
   const bulbStates = new Map()  // 灯泡五态
   const meters = new Map()      // 电表读数
+  const rheoAcc = new Map()     // 分压变阻器两段线圈聚合 {U, I, P}
   for (const e of resEdges) {
     if (e.ohm) continue // 欧姆表内部电阻（读数由电压源电流反推）
     const U = Math.abs(V(e.a) - V(e.b))
@@ -276,6 +286,15 @@ export function solveCircuit(comps, wires, getTerminals) {
     if (e.vm) {
       // 电压表（带内阻）：读数 = 节点压差
       meters.set(e.comp.id, { reading: U, unit: 'V' })
+      continue
+    }
+    if (e.rheoPart) {
+      // 分压变阻器：两段线圈聚合为整件读数（U=线圈总压，I=A 端电流，P=总功率）
+      const acc = rheoAcc.get(e.comp.id) || { U: 0, I: 0, P: 0 }
+      acc.U += U
+      if (e.rheoPart === 'A') acc.I = I
+      acc.P += U * I
+      rheoAcc.set(e.comp.id, acc)
       continue
     }
     results.set(e.comp.id, { U, I, P: U * I })
@@ -330,6 +349,10 @@ export function solveCircuit(comps, wires, getTerminals) {
   })
   for (const vm of voltMeters) {
     meters.set(vm.comp.id, { reading: Math.abs(V(vm.a) - V(vm.b)), unit: 'V' })
+  }
+  // 分压变阻器聚合读数入库
+  for (const [id, acc] of rheoAcc) {
+    results.set(id, { U: acc.U, I: acc.I, P: acc.P })
   }
   return {
     ok: true,

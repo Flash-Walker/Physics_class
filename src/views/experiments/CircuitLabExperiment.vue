@@ -274,6 +274,7 @@ import {
   hitComponent,
   getTerminals,
   toCompLocal,
+  symbolPorts,
   wirePath,
   distToWire,
   curveBendPx
@@ -610,9 +611,17 @@ function buildTopo() {
       const hasRod = used.has('C') || used.has('D')
       const hasA = used.has('A')
       const hasB = used.has('B')
-      if (hasA && hasB && !hasRod) ts = [tA, tB]
-      else if (hasA && hasRod) ts = [tA, rod]
-      else if (hasB && hasRod) ts = [tB, rod]
+      c.state.divider = false
+      c.state.rheoUse = null
+      if (hasA && hasB && hasRod) {
+        // 分压接法（A、B、滑杆三端接入）：滑片把线圈分成两段，各自成边
+        c.state.divider = true
+        compEdges.push({ comp: c, a: tA, b: rod, rheoPart: 'A' })
+        compEdges.push({ comp: c, a: tB, b: rod, rheoPart: 'B' })
+        ts = null
+      } else if (hasA && hasB && !hasRod) ts = [tA, tB]
+      else if (hasA && hasRod) { ts = [tA, rod]; c.state.rheoUse = 'A' }
+      else if (hasB && hasRod) { ts = [tB, rod]; c.state.rheoUse = 'B' }
       else if (hasRod) ts = [rod, rod]
       else ts = [tA, rod]
     } else if (c.type === 'switch2') {
@@ -621,6 +630,7 @@ function buildTopo() {
       const arm = all.find((t) => (c.params.position === 'up' ? t.dy < 0 : t.dy > 0))
       if (com && arm) ts = [find(com.id), find(arm.id)]
     }
+    if (!ts) continue // 分压变阻器已直接入边
     if (ts.length >= 2 && ts[0] !== ts[1]) {
       compEdges.push({ comp: c, a: ts[0], b: ts[1] })
     } else if (ts.length >= 2 && ts[0] === ts[1]) {
@@ -699,6 +709,18 @@ function classifyRest(mainLoop, compEdges) {
   return { branches, broken }
 }
 
+// 水平连线：两端点 y 不同时在中点做直角转折（避免斜线/断头）
+function pushHSeg(segs, x1, y1, x2, y2) {
+  if (Math.abs(y1 - y2) < 0.5 || Math.abs(x2 - x1) < 0.5) {
+    segs.push({ x1, y1, x2, y2 })
+    return
+  }
+  const mx = (x1 + x2) / 2
+  segs.push({ x1, y1, x2: mx, y2: y1 })
+  segs.push({ x1: mx, y1, x2: mx, y2 })
+  segs.push({ x1: mx, y1: y2, x2, y2 })
+}
+
 // 电路图布局（画布坐标）
 function buildLayout() {
   const topo = buildTopo()
@@ -721,52 +743,73 @@ function buildLayout() {
   const reports = []
 
   const bat = main.loop[0]
-  const topComps = main.loop.slice(1)
-  const k = topComps.length
+  const topEdges = main.loop.slice(1)
+  // 合并同一元件的连续边（分压变阻器的两段线圈只占一个槽位、只画一次）
+  const slots = []
+  for (const e of topEdges) {
+    const last = slots[slots.length - 1]
+    if (last && last.comp === e.comp) last.edges.push(e)
+    else slots.push({ comp: e.comp, edges: [e], x: 0 })
+  }
+  const k = slots.length
   const gap = (R - L) / (k + 1)
+  const slotOf = (e) => slots.find((s) => s.edges.includes(e))
   // 顶边元件
-  topComps.forEach((e, i) => {
-    nodes.push({ compId: e.comp.id, x: L + gap * (i + 1), y: T })
+  slots.forEach((s, i) => {
+    s.x = L + gap * (i + 1)
+    nodes.push({ compId: s.comp.id, x: s.x, y: T })
   })
-  // 电池（底边）
-  nodes.push({ compId: bat.comp.id, x: L + 70, y: B })
-  // 底边导线：电池+ → (R,B)；电池- ← (L,B)
-  segs.push({ x1: L + 70 + 44, y1: B, x2: R, y2: B })
-  segs.push({ x1: L, y1: B, x2: L + 70 - 44, y2: B })
+  // 电源（底边）：端口位置随元件类型（电池盒端子距 = w/2-10，随节数变化）
+  const bp = symbolPorts(bat.comp)
+  const batCx = L + 34 - bp.l.dx // 左端口距左立柱固定 34px，盒体再宽也不越界
+  nodes.push({ compId: bat.comp.id, x: batCx, y: B })
+  // 底边导线：电源右端口 → (R,B)；(L,B) → 电源左端口
+  segs.push({ x1: batCx + bp.r.dx, y1: B, x2: R, y2: B })
+  segs.push({ x1: L, y1: B, x2: batCx + bp.l.dx, y2: B })
   // 右边垂直
   segs.push({ x1: R, y1: B, x2: R, y2: T })
   // 左边垂直
   segs.push({ x1: L, y1: T, x2: L, y2: B })
-  // 顶边元件端子引线与元件间连线
+  // 顶边槽位间连线（分压变阻器两段之间不画线，线圈自身连通）
   for (let i = 0; i < k; i++) {
-    const e = topComps[i]
-    const def = COMPONENT_TYPES[e.comp.type]
-    const hw = e.comp.w / 2
-    const cx = L + gap * (i + 1)
-    if (i === 0) segs.push({ x1: L, y1: T, x2: cx - hw, y2: T })
+    const pl = symbolPorts(slots[i].comp)
+    const cx = slots[i].x
+    if (i === 0) pushHSeg(segs, L, T, cx + pl.l.dx, T + pl.l.dy)
     else {
-      const prev = topComps[i - 1]
-      const pxc = L + gap * i
-      segs.push({ x1: pxc + prev.comp.w / 2, y1: T, x2: cx - hw, y2: T })
+      const pp = symbolPorts(slots[i - 1].comp)
+      pushHSeg(segs, slots[i - 1].x + pp.r.dx, T + pp.r.dy, cx + pl.l.dx, T + pl.l.dy)
     }
-    if (i === k - 1) segs.push({ x1: cx + hw, y1: T, x2: R, y2: T })
+    if (i === k - 1) pushHSeg(segs, cx + pl.r.dx, T + pl.r.dy, R, T)
   }
-  // 主回路节点 → 接入列：nodeSeq[0]/nodeSeq[k] 是左右立柱（立柱本身贯通 T~B，
-  // 支路可直接水平搭接）；中间节点是顶边相邻两元件之间的导线，取导线中点垂直引下
+  // 主回路节点 → 接入列：nodeSeq 首尾是左右立柱（立柱本身贯通 T~B，
+  // 支路可直接水平搭接）；中间节点是顶边相邻两元件之间的导线，取导线中点垂直引下；
+  // 分压变阻器的滑片节点，接入点取滑片位置（垂线从滑片抽头引下）
   const junctionX = {}
+  const rodTap = {} // 滑片节点 → 抽头下端 y
   main.nodeSeq.forEach((n, idx) => {
     if (idx <= 0) junctionX[n] = L
-    else if (idx >= k) junctionX[n] = R
+    else if (idx >= topEdges.length) junctionX[n] = R
     else {
-      const prev = topComps[idx - 1]
-      const next = topComps[idx]
-      const x1 = L + gap * idx + prev.comp.w / 2
-      const x2 = L + gap * (idx + 1) - next.comp.w / 2
-      junctionX[n] = (x1 + x2) / 2
+      const ePrev = topEdges[idx - 1]
+      const eNext = topEdges[idx]
+      if (ePrev.comp === eNext.comp) {
+        // 分压变阻器滑片节点：接入点 = 滑片位置
+        const s = slotOf(ePrev)
+        const sxp = -40 + (ePrev.comp.params.slider || 0) * 80
+        junctionX[n] = s.x + sxp
+        rodTap[n] = T + 24
+      } else {
+        const sp = slotOf(ePrev)
+        const sn = slotOf(eNext)
+        const pp = symbolPorts(ePrev.comp)
+        const np = symbolPorts(eNext.comp)
+        junctionX[n] = (sp.x + pp.r.dx + sn.x + np.l.dx) / 2
+      }
     }
   })
   // 并联支路：主回路内部按水平横档排布（不向顶边元件引竖线、不在顶边画贯穿总线，
   // 避免导线从元件符号下方穿过造成"被短路"的视觉）
+  const placed = new Set(nodes.map((n) => n.compId))
   branches.forEach((br, bi) => {
     const rowY = T + 120 + bi * rowGap
     const xA = junctionX[br.nA]
@@ -775,20 +818,29 @@ function buildLayout() {
     const x1 = Math.min(xA, xB)
     const x2 = Math.max(xA, xB)
     const m = br.comps.length
-    // 中间节点：从顶边导线中点垂直引下到支路行（端点节点直接搭左右立柱，无需竖线）
+    // 中间节点：从顶边导线中点（或滑片抽头）垂直引下到支路行（端点节点直接搭左右立柱，无需竖线）
     for (const nx of [br.nA, br.nB]) {
       const idx = main.nodeSeq.indexOf(nx)
-      if (idx > 0 && idx < k) segs.push({ x1: junctionX[nx], y1: T, x2: junctionX[nx], y2: rowY })
+      if (idx > 0 && idx < topEdges.length) {
+        const sy = rodTap[nx] !== undefined ? rodTap[nx] : T
+        segs.push({ x1: junctionX[nx], y1: sy, x2: junctionX[nx], y2: rowY })
+      }
     }
-    // 支路元件沿 rowY 水平串联 + 与两接入点水平相连
-    let prevX = x1
+    // 支路元件沿 rowY 水平串联 + 与两接入点水平相连（按实际端口位置）；
+    // 已在主回路放置的元件（分压变阻器的另一半）不重复放置，导线直连
+    let px = x1
+    let py = rowY
     br.comps.forEach((e, i) => {
+      if (placed.has(e.id)) return
       const cx = x1 + ((x2 - x1) * (i + 1)) / (m + 1)
       nodes.push({ compId: e.id, x: cx, y: rowY })
-      segs.push({ x1: prevX, y1: rowY, x2: cx - e.w / 2, y2: rowY })
-      prevX = cx + e.w / 2
+      placed.add(e.id)
+      const pl = symbolPorts(e)
+      pushHSeg(segs, px, py, cx + pl.l.dx, rowY + pl.l.dy)
+      px = cx + pl.r.dx
+      py = rowY + pl.r.dy
     })
-    segs.push({ x1: prevX, y1: rowY, x2: x2, y2: rowY })
+    pushHSeg(segs, px, py, x2, rowY)
     reports.push('并联支路：' + br.comps.map((e) => nameOf(e.type)).join(' → '))
   })
 
@@ -842,6 +894,7 @@ function submitCircuit() {
         const { branches, broken } = classifyRest(main, topo.compEdges)
         if (branches.length) msgs.push('检测到 ' + branches.length + ' 条并联支路（并联电路）')
         if (broken.length) msgs.push('断路元件：' + broken.map((c) => nameOf(c.type)).join('、') + '（未接入回路）')
+        if (comps.value.some((c) => c.state.divider)) msgs.push('滑动变阻器为分压接法（滑片两侧线圈均接入电路）')
         const series = main.loop.filter((e) => e.comp.type === 'battery' || e.comp.type === 'batteryBox').length
         msgs.push('回路元件数：' + main.loop.length + '（含电源 ' + series + ' 个）')
       }
@@ -849,15 +902,20 @@ function submitCircuit() {
   }
   circuitReport.value = { ok, msgs }
   if (ok) {
-    layout.value = buildLayout()
     // 固化布局坐标到元件（电路图模式交互命中用），备份原坐标/旋转
     layoutBackup.value = comps.value.map((c) => ({ id: c.id, x: c.x, y: c.y, rotation: c.rotation || 0 }))
-    for (const n of layout.value.nodes) {
-      const c = comps.value.find((x) => x.id === n.compId)
-      if (c) { c.x = n.x; c.y = n.y; c.rotation = 0 } // 电路图横平竖直，旋转归零
-    }
+    refreshLayout()
     solveNow()
     submitted.value = true
+  }
+}
+
+// 重新生成电路图布局并固化坐标到元件（提交后 / 分压变阻器滑块拖动后调用）
+function refreshLayout() {
+  layout.value = buildLayout()
+  for (const n of layout.value.nodes) {
+    const c = comps.value.find((x) => x.id === n.compId)
+    if (c) { c.x = n.x; c.y = n.y; c.rotation = 0 } // 电路图横平竖直，旋转归零
   }
 }
 
@@ -1098,6 +1156,7 @@ function onPointerMove(e) {
       const c = comps.value.find((o) => o.id === dragRheostatCircuit.value)
       if (c) {
         c.params.slider = Math.min(1, Math.max(0, (x - (c.x - 40)) / 80))
+        if (c.state.divider) refreshLayout() // 分压接法：滑片抽头位置跟随滑块
         solveNow()
       }
     } else if (dragOhmCircuit.value) {
