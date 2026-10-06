@@ -20,6 +20,9 @@
         :experiment-count="chapter.count"
       />
     </div>
+
+    <!-- 首页底部：当前在线人数（Sprint 3） -->
+    <OnlineCounter />
   </div>
     <!-- 打赏弹窗 -->
     <div v-if="showDonate" class="donate-mask" @click.self="showDonate = false">
@@ -35,6 +38,7 @@
 
 <script setup>
 import ChapterCard from '@/components/ChapterCard.vue'
+import OnlineCounter from '@/components/OnlineCounter.vue'
 import { ref } from 'vue'
 import donateQr from '@/img/WeChatPayQR.png'
 

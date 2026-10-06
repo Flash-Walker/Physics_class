@@ -9,16 +9,35 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 import NavHeader from '@/components/NavHeader.vue'
 import Footer from '@/components/Footer.vue'
 import { useUserStore } from '@/stores/user.js'
+import api from '@/api/index.js'
 
 const userStore = useUserStore()
 
-// 应用启动：恢复并校验登录态（Sprint 2 登录态保持）
-onMounted(() => {
-  userStore.initialize()
+let heartbeatTimer = null
+
+// 登录用户心跳：启动时立即上报一次，之后每 60s 一次（Sprint 3 在线统计依据）
+function startHeartbeat() {
+  if (!userStore.isLoggedIn) return
+  const beat = () => {
+    if (!userStore.isLoggedIn) return
+    api.post('/api/stats/heartbeat').catch(() => {}) // 静默，失败不影响使用
+  }
+  beat()
+  heartbeatTimer = setInterval(beat, 60 * 1000)
+}
+
+// 应用启动：恢复并校验登录态，随后启动心跳
+onMounted(async () => {
+  await userStore.initialize()
+  startHeartbeat()
+})
+
+onBeforeUnmount(() => {
+  if (heartbeatTimer) clearInterval(heartbeatTimer)
 })
 </script>
 
