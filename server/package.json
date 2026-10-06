@@ -1,0 +1,16 @@
+{
+  "name": "physics-class-server",
+  "version": "2.0.0",
+  "description": "初中物理经典实验模拟平台 · 用户系统后端",
+  "private": true,
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.2.1"
+  }
+}

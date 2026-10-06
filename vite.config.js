@@ -22,7 +22,14 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    open: false
+    open: false,
+    // 开发环境：/api 请求转发到本地后端，避免跨域
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      }
+    }
   },
   preview: {
     // 允许任意 Host 访问（内网穿透/公网隧道域名会变，无法逐个枚举）
