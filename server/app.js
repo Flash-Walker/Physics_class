@@ -2,6 +2,7 @@
 // Sprint 0：健康检查 + CORS + 数据库就绪；业务路由自 Sprint 1 起逐步挂载
 import express from 'express'
 import db from './db.js'
+import authRouter from './routes/auth.js'
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -33,8 +34,8 @@ app.get('/api/health', (req, res) => {
   res.json({ code: 0, data: { status: 'ok', version: '2.0.0' } })
 })
 
-// —— 业务路由将在后续 Sprint 挂载 ——
-// app.use('/api/auth',  authRouter)  // Sprint 1：注册/登录/登出
+// —— 业务路由 ——
+app.use('/api/auth', authRouter)   // Sprint 1：注册；Sprint 2 起含登录/登出
 // app.use('/api/user',  userRouter)  // Sprint 1/2：/user/me
 // app.use('/api/stats', statsRouter) // Sprint 3：在线人数
 

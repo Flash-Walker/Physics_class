@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomePage from '@/views/HomePage.vue'
 import ChapterPage from '@/views/ChapterPage.vue'
 import ExperimentPage from '@/views/ExperimentPage.vue'
+import RegisterPage from '@/views/RegisterPage.vue'
 
 const routes = [
   {
@@ -10,6 +11,12 @@ const routes = [
     name: 'Home',
     component: HomePage,
     meta: { title: '初中物理经典实验模拟平台' }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: RegisterPage,
+    meta: { title: '注册' }
   },
   {
     path: '/chapter/:id',
