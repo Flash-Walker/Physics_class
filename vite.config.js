@@ -4,8 +4,9 @@ import { fileURLToPath, URL } from 'node:url'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  // GitHub Pages 子路径部署（https://flash-walker.github.io/Physics_class/）
-  base: '/Physics_class/',
+  // 部署基准路径：默认 GitHub Pages 子路径；服务器根路径部署时用 VITE_BASE=/ 覆盖
+  // 例：服务器部署  $env:VITE_BASE='/'; npx vite build
+  base: process.env.VITE_BASE || '/Physics_class/',
   plugins: [vue()],
   resolve: {
     alias: {

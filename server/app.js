@@ -46,6 +46,19 @@ app.use((req, res) => {
   res.status(404).json({ code: 40400, message: '接口不存在' })
 })
 
+// 统一错误处理：body-parser 超限/格式错误等返回 JSON（避免前端收到 HTML 误报网络异常）
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ code: 41300, message: '请求体过大，头像请控制在 200KB 以内' })
+  }
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({ code: 40003, message: '请求数据格式错误' })
+  }
+  console.error('[physics-class] 未处理错误:', err)
+  res.status(500).json({ code: 50000, message: '服务器内部错误' })
+})
+
 app.listen(PORT, () => {
   const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n
   console.log(`[physics-class] API server v2.0.0 running at http://localhost:${PORT}`)
